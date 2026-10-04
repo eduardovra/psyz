@@ -340,6 +340,8 @@ static void cache_last_result(const u_char* result, size_t len, int intr) {
 static int is_disk_loaded = 0;
 static u_char data_sector[SECTOR_SIZE];
 static int data_read_active = 0;
+// A command finished and its Complete interrupt is still to be raised.
+static int pending_complete = 0;
 static int data_sector_valid = 0;
 static int data_sector_number = 0;
 static int data_getsector_count = 0;
@@ -1167,7 +1169,35 @@ int CD_cw(u_char com, u_char* param, u_char* result, s32 arg3) {
         }
         LOG_ONCE("com %s not implemented", CD_comstr[com]);
     }
+    pending_complete = 1;
     return 0;
+}
+
+// Sectors handed to the ready callback per frame; a 2x drive manages about
+// 2.5, more only shortens loads.
+#define CD_SECTORS_PER_VSYNC 16
+
+void Psyz_CdInterrupts(void) {
+    u_char result[8] = {0};
+    int i;
+
+    // A sync callback usually issues the next command, completing it too.
+    for (i = 0; i < 8 && pending_complete; i++) {
+        pending_complete = 0;
+        if (CD_cbsync) {
+            CD_cbsync(CdlComplete, last_result);
+        }
+    }
+    for (i = 0; i < CD_SECTORS_PER_VSYNC && data_read_active && CD_cbready;
+         i++) {
+        if (CD_ready(0, result) != CdlDataReady) {
+            break;
+        }
+        CD_cbready(CdlDataReady, result);
+        if (data_sector_valid) {
+            break; // the callback left the sector unread
+        }
+    }
 }
 
 int CdInit(void) {

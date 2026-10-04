@@ -69,6 +69,7 @@ int VSync(int mode) {
     n = mode > 0 ? mode : 1;
     elapsed = Psyz_VideoVSync(0);
     ReadPadsOnVsync(); // this is done on vsync by the BIOS
+    Psyz_CdInterrupts();
     if (g_PsyzVsyncCb) {
         g_PsyzVsyncCb();
     }
