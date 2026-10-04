@@ -1291,6 +1291,7 @@ void SetFarColor(long rfc, long gfc, long bfc) {
 }
 
 void SetFogNear(long a, long h) { NOT_IMPLEMENTED; }
+void SetFogFar(long a, long h) { NOT_IMPLEMENTED; }
 
 void Psyz_GteLdRgb(CVECTOR* v) { *(unsigned int*)&RGBC = *(unsigned int*)v; }
 void Psyz_GteStRgb(CVECTOR* v) { *(unsigned int*)v = RGB2; }
