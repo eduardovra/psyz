@@ -2485,6 +2485,7 @@ void Psyz_GteLdopv2(VECTOR* v) {
 void Psyz_GteOp12(void) { OP(0x178000C); }
 
 int Psyz_GteReadflg(void) { return (int)FLAG; }
+int Psyz_GteReadIr3(void) { return (int)IR3; }
 void Psyz_GteStsxy3G3(void* polyGte) {
     POLY_G3* poly = (POLY_G3*)polyGte;
     poly->x0 = SX0;

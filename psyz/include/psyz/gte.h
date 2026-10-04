@@ -118,6 +118,7 @@ void Psyz_GteLdopv1(VECTOR* v);
 void Psyz_GteLdopv2(VECTOR* v);
 void Psyz_GteOp12(void);
 int Psyz_GteReadflg(void);
+int Psyz_GteReadIr3(void);
 void Psyz_GteLdv0(SVECTOR* v);
 void Psyz_GteLdv3(SVECTOR* v0, SVECTOR* v1, SVECTOR* v2);
 void Psyz_GteLdv01c(SVECTOR* v);
