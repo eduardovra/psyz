@@ -35,12 +35,14 @@ static int pads_sampled = 0; // avoid more than one input polling per frame
 static char* pad_buffers[2];
 static int pad_buffer_lens[2];
 static void ReadPadsOnVsync(void) {
-    pads_sampled = 0;
+    // A frame set since the last VSync (Psyz_PadsSet, e.g. scripted input)
+    // is delivered as is; otherwise the host devices are polled.
     for (int p = 0; p < LEN(ports); p++) {
         if (pad_buffers[p]) {
             Psyz_PadsGet(p, pad_buffers[p], pad_buffer_lens[p]);
         }
     }
+    pads_sampled = 0;
 }
 
 static PsyzVSyncCb g_PsyzVsyncCb = NULL;
