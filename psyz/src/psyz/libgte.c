@@ -1577,6 +1577,30 @@ MATRIX* MulMatrix(MATRIX* m0, MATRIX* m1) {
     return m0;
 }
 
+MATRIX* MulMatrix2(MATRIX* m0, MATRIX* m1) {
+    MATRIX r;
+    int i, j;
+
+    for (j = 0; j < 3; j++) {
+        FLAG = 0;
+        mat_vec(1, 0, m0->m, m1->m[0][j], m1->m[1][j], m1->m[2][j], 0, 0, 0);
+        r.m[0][j] = IR1;
+        r.m[1][j] = IR2;
+        r.m[2][j] = IR3;
+    }
+    V0.vx = m1->m[0][2];
+    V0.vy = m1->m[1][2];
+    V0.vz = m1->m[2][2];
+    FLAG_UPDATE_ERROR();
+
+    for (i = 0; i < 3; i++) {
+        for (j = 0; j < 3; j++) {
+            m1->m[i][j] = r.m[i][j];
+        }
+    }
+    return m1;
+}
+
 MATRIX* CompMatrix(MATRIX* m0, MATRIX* m1, MATRIX* m2) {
     MATRIX r;
     int j;

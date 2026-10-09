@@ -350,6 +350,17 @@ MATRIX* MulMatrix(MATRIX* m0, MATRIX* m1);
 MATRIX* MulMatrix0(MATRIX* m0, MATRIX* m1, MATRIX* m2);
 
 /**
+ * @brief Multiply matrices (into the second)
+ *
+ * Multiplies two matrices: m1 = m0 * m1.
+ *
+ * @param m0 Pointer to first matrix (input)
+ * @param m1 Pointer to second matrix (input/output)
+ * @return Pointer to result matrix
+ */
+MATRIX* MulMatrix2(MATRIX* m0, MATRIX* m1);
+
+/**
  * @brief Multiply matrix by rotation matrix
  *
  * Multiplies a matrix by the current rotation matrix.
