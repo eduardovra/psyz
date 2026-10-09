@@ -602,10 +602,9 @@ static void PlatformBackend_Present(void) {
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     glDisable(GL_SCISSOR_TEST);
 
-    SDL_Rect src = {display_area.x, display_area.y, display_size.x,
-                    display_size.y};
-    float game_aspect =
-        GetCurrentGameAspectRatio(display_size.x, display_size.y);
+    const int visible_h = GetVisibleDisplayHeight(display_size.y);
+    SDL_Rect src = {display_area.x, display_area.y, display_size.x, visible_h};
+    float game_aspect = GetCurrentGameAspectRatio(display_size.x, visible_h);
     if (debug_show_vram) {
         src = (SDL_Rect){0, 0, VRAM_W, VRAM_H};
         game_aspect = (float)VRAM_W / (float)VRAM_H;
@@ -735,7 +734,7 @@ static unsigned char* AllocRgb888Region(int x, int y, int w, int h) {
 
 unsigned char* Psyz_VideoAllocCapturedFrame(int* w, int* h) {
     *w = display_size.x;
-    *h = display_size.y;
+    *h = GetVisibleDisplayHeight(display_size.y);
     return AllocRgb888Region(display_area.x, display_area.y, *w, *h);
 }
 

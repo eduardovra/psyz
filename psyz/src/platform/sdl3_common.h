@@ -137,6 +137,11 @@ static void SetWindowSizeInPixels(int width, int height) {
     SDL_SetWindowSize(sdl3_window, actual_width, actual_height);
 }
 
+static int GetVisibleDisplayHeight(int mode_h) {
+    int lines = mode_h == 480 ? set_disp_vert * 2 : set_disp_vert;
+    return lines < mode_h ? lines : mode_h;
+}
+
 static float GetCurrentGameAspectRatio(int disp_w, int disp_h) {
     if (aspect_mode == PSYZ_ASPECT_DISPLAY) {
         float vref = is_pal ? 288.0f : 240.0f;

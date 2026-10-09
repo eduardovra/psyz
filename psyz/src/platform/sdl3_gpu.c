@@ -721,15 +721,16 @@ static void PlatformBackend_Present(void) {
                 SDL_EndGPURenderPass(blank_pass);
             } else {
                 const Uint32 n = internal_res;
+                const int visible_h = GetVisibleDisplayHeight(display_size.y);
                 SDL_GPUBlitRegion src = {
                     .texture = GetRenderTarget(),
                     .x = (Uint32)display_area.x * n,
                     .y = (Uint32)display_area.y * n,
                     .w = (Uint32)display_size.x * n,
-                    .h = (Uint32)display_size.y * n,
+                    .h = (Uint32)visible_h * n,
                 };
                 float game_aspect =
-                    GetCurrentGameAspectRatio(display_size.x, display_size.y);
+                    GetCurrentGameAspectRatio(display_size.x, visible_h);
                 if (debug_show_vram) {
                     src.x = 0;
                     src.y = 0;
@@ -928,7 +929,7 @@ static unsigned char* AllocRgb888Region(int x, int y, int w, int h) {
 
 unsigned char* Psyz_VideoAllocCapturedFrame(int* w, int* h) {
     *w = display_size.x;
-    *h = display_size.y;
+    *h = GetVisibleDisplayHeight(display_size.y);
     return AllocRgb888Region(display_area.x, display_area.y, *w, *h);
 }
 
