@@ -944,6 +944,11 @@ int CD_initvol(void) {
 }
 
 int CD_sync(int mode, u_char* result) {
+    int polling = mode != 0;
+
+    if (polling) {
+        Psyz_CdInterrupts();
+    }
     if (result) {
         // Hand back only what the last command produced; the caller sized its
         // buffer for that command, not for last_result.
@@ -1178,9 +1183,14 @@ int CD_cw(u_char com, u_char* param, u_char* result, s32 arg3) {
 #define CD_SECTORS_PER_VSYNC 16
 
 void Psyz_CdInterrupts(void) {
+    static int delivering;
     u_char result[8] = {0};
     int i;
 
+    if (delivering) {
+        return;
+    }
+    delivering = 1;
     // A sync callback usually issues the next command, completing it too.
     for (i = 0; i < 8 && pending_complete; i++) {
         pending_complete = 0;
@@ -1198,6 +1208,7 @@ void Psyz_CdInterrupts(void) {
             break; // the callback left the sector unread
         }
     }
+    delivering = 0;
 }
 
 int CdInit(void) {
