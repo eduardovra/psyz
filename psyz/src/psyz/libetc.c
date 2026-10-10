@@ -133,6 +133,20 @@ int PadGetState(int port) {
     return 0;
 }
 
+int PadInfoMode(int port, int term, int offs) {
+    // Only InfoModeCurID (1) has an answer: psyz's pads have no actuators,
+    // so they report no DUAL SHOCK modes.
+    char buf[PSYZ_PAD_BUF_LEN];
+    if (term != 1) {
+        return 0;
+    }
+    Psyz_PadsGet(port >> 4, buf, sizeof(buf));
+    if ((unsigned char)buf[0] != 0) {
+        return 0;
+    }
+    return (unsigned char)buf[1] >> 4;
+}
+
 void PadSetAct(int port, u_char* data, int len) {
     // from PSY-Q 4.2
     NOT_IMPLEMENTED;
