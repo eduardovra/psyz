@@ -22,6 +22,9 @@
  * Note: GTE operations use fixed-point arithmetic (12-bit fraction).
  */
 
+/** @brief 1.0 in the GTE's 4.12 fixed point, and a full turn in its angles */
+#define ONE 4096
+
 /* Forward declarations for structures */
 
 /**
