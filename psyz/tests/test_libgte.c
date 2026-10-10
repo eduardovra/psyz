@@ -12,16 +12,12 @@
 #define GTE_SET_DQA(v) Psyz_GteCtrlWrite(27, (unsigned int)(v))
 #define GTE_SET_DQB(v) Psyz_GteCtrlWrite(28, (unsigned int)(v))
 #define GTE_READ_IR0(v) ((v) = (int)Psyz_GteDataRead(8))
-#define GTE_READ_DQA(v) ((v) = (int)Psyz_GteCtrlRead(27))
-#define GTE_READ_DQB(v) ((v) = (int)Psyz_GteCtrlRead(28))
 #else
 #define GTE_SET_ZSF3(v) __asm__ volatile("ctc2	%0, $29" : : "r"(v))
 #define GTE_SET_ZSF4(v) __asm__ volatile("ctc2	%0, $30" : : "r"(v))
 #define GTE_SET_DQA(v) __asm__ volatile("ctc2	%0, $27" : : "r"(v))
 #define GTE_SET_DQB(v) __asm__ volatile("ctc2	%0, $28" : : "r"(v))
 #define GTE_READ_IR0(v) __asm__ volatile("mfc2	%0, $8;nop" : "=r"(v))
-#define GTE_READ_DQA(v) __asm__ volatile("cfc2	%0, $27;nop" : "=r"(v))
-#define GTE_READ_DQB(v) __asm__ volatile("cfc2	%0, $28;nop" : "=r"(v))
 #endif
 
 ZTEST_SETUP(gte) { InitGeom(); }
@@ -1971,47 +1967,46 @@ ZTEST(gte, rtps_ir0_flags_fraction_above_limit) {
     zexpect_u32_eq(0x00001000, (unsigned int)r.flag);
 }
 
-static void ReadDepthCue(int* dqa, int* dqb) {
-    GTE_READ_DQA(*dqa);
-    GTE_READ_DQB(*dqb);
+static int DepthCueAt(int depth) {
+    MATRIX m = {{{0x1000, 0, 0}, {0, 0x1000, 0}, {0, 0, 0x1000}}, {0, 0, 0}};
+    SVECTOR v = {0, 0, 0};
+    int ir0;
+    m.t[2] = depth;
+    gte_SetGeomScreen(256);
+    gte_SetRotMatrix(&m);
+    gte_SetTransMatrix(&m);
+    gte_ldv0(&v);
+    gte_rtps();
+    GTE_READ_IR0(ir0);
+    return ir0;
 }
 
-ZTEST(gte, setfognearfar_sets_depth_cue) {
-    int dqa, dqb;
-    SetFogNearFar(1000, 5000, 500);
-    ReadDepthCue(&dqa, &dqb);
-    zexpect_s32_eq(-640, dqa);
-    zexpect_s32_eq(0x1400000, dqb);
+ZTEST(gte, setfognearfar_fades_from_near_to_far) {
+    SetFogNearFar(1000, 5000, 256);
+    zexpect_s32_eq(0, DepthCueAt(1000));
+    zexpect_s32_eq(3413, DepthCueAt(3000));
+    zexpect_s32_eq(0x1000, DepthCueAt(5000));
 }
 
 ZTEST(gte, setfognearfar_ignores_narrow_range) {
-    int dqa, dqb;
-    SetFogNearFar(1000, 1099, 500);
-    ReadDepthCue(&dqa, &dqb);
-    zexpect_s32_eq(-0x1062, dqa);
-    zexpect_s32_eq(0x140, dqb);
+    SetFogNearFar(1000, 5000, 256);
+    SetFogNearFar(1000, 1099, 256);
+    zexpect_s32_eq(3413, DepthCueAt(3000));
 }
 
 ZTEST(gte, setfognearfar_clamps_dqa) {
-    int dqa, dqb;
-    SetFogNearFar(10000, 10100, 1);
-    ReadDepthCue(&dqa, &dqb);
-    zexpect_s32_eq(-0x8000, dqa);
-    zexpect_s32_eq(0x65000000, dqb);
+    SetFogNearFar(10410, 14300, 256);
+    zexpect_s32_eq(3873, DepthCueAt(12000));
 }
 
-ZTEST(gte, setfognear_sets_depth_cue) {
-    int dqa, dqb;
-    SetFogNear(1000, 500);
-    ReadDepthCue(&dqa, &dqb);
-    zexpect_s32_eq(-640, dqa);
-    zexpect_s32_eq(0x1400000, dqb);
+ZTEST(gte, setfognear_fades_up_to_five_times_near) {
+    SetFogNear(1000, 256);
+    zexpect_s32_eq(0, DepthCueAt(1000));
+    zexpect_s32_eq(3413, DepthCueAt(3000));
+    zexpect_s32_eq(0x1000, DepthCueAt(5000));
 }
 
-ZTEST(gte, setfognear_truncates_dqa_to_16_bits) {
-    int dqa, dqb;
+ZTEST(gte, setfognear_wraps_dqa_to_16_bits) {
     SetFogNear(1000, 1);
-    ReadDepthCue(&dqa, &dqb);
-    zexpect_s32_eq(0x1E00, dqa);
-    zexpect_s32_eq(0x1400000, dqb);
+    zexpect_s32_eq(0x1000, DepthCueAt(500));
 }
