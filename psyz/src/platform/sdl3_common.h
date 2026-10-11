@@ -972,7 +972,8 @@ typedef struct {
 #define TRIANGLE 0x20
 
 static u_short cur_tpage = 0;
-static Vertex vertex_buf[MAX_VERTEX_COUNT];
+// writePacket stores a Gouraud prim's next color one vertex past its last
+static Vertex vertex_buf[MAX_VERTEX_COUNT + 1];
 static unsigned short index_buf[MAX_INDEX_COUNT];
 static Vertex* vertex_cur;
 static unsigned short* index_cur;
