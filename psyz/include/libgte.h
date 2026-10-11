@@ -1430,6 +1430,16 @@ long RotTransPers4(
 long RotTransPers4_nom(SVECTOR* v0, SVECTOR* v1, SVECTOR* v2, SVECTOR* v3);
 
 /**
+ * @brief MIMe vertex interpolation: otp[i] += dfp[i] * p >> 12
+ *
+ * @param otp Vertices to update (in place)
+ * @param dfp Per-vertex differences
+ * @param n Number of vertices
+ * @param p Weight, 4096 = 1.0
+ */
+void gteMIMefunc(SVECTOR* otp, SVECTOR* dfp, long n, long p);
+
+/**
  * @brief Coordinate and perspective transformation (N vertices)
  *
  * Executes RotTransPers() for n vertices.

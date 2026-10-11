@@ -2665,6 +2665,20 @@ void ApplyMatrix(MATRIX* m, SVECTOR* v0, VECTOR* v1) {
 
 void ApplyRotMatrix(SVECTOR* v0, VECTOR* v1) { ApplyMatrix(&M, v0, v1); }
 
+// GPF sf=1 per vertex (IR = IR0 * dfp SAR 12, saturated), added to otp.
+void gteMIMefunc(SVECTOR* otp, SVECTOR* dfp, long n, long p) {
+    IR0 = (short)p;
+    for (; n > 0; n--, otp++, dfp++) {
+        IR1 = dfp->vx;
+        IR2 = dfp->vy;
+        IR3 = dfp->vz;
+        GPF(1 << 19);
+        otp->vx += IR1;
+        otp->vy += IR2;
+        otp->vz += IR3;
+    }
+}
+
 // The wrappers finish every GTE step before writing through their pointers:
 // a store through an argument could alias the registers and force reloads.
 
