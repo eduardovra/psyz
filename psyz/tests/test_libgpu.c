@@ -645,6 +645,45 @@ ZTEST(gpu, disp_mask_preserves_vram) {
     zexpect_u8array_eq(pattern, readback, sizeof(pattern));
 }
 
+ZTEST(gpu, load_image_wraps_across_vram_edges) {
+    u_short pattern[8 * 2];
+    u_short readback00[4];
+    u_short readback01[4];
+    u_short readback10[4];
+    u_short readback11[4];
+    RECT upload = {1020, 511, 8, 2};
+    RECT dst00 = {1020, 511, 4, 1};
+    RECT dst01 = {0, 511, 4, 1};
+    RECT dst10 = {1020, 0, 4, 1};
+    RECT dst11 = {0, 0, 4, 1};
+
+    for (int i = 0; i < LEN(pattern); i++) {
+        pattern[i] = (u_short)(0x1000 + i * 0x111);
+    }
+
+    LoadImage(&upload, (u_long*)pattern);
+    DrawSync(0);
+
+    memset(readback00, 0, sizeof(readback00));
+    memset(readback01, 0, sizeof(readback01));
+    memset(readback10, 0, sizeof(readback10));
+    memset(readback11, 0, sizeof(readback11));
+    StoreImage(&dst00, (u_long*)readback00);
+    DrawSync(0);
+    StoreImage(&dst01, (u_long*)readback01);
+    DrawSync(0);
+    StoreImage(&dst10, (u_long*)readback10);
+    DrawSync(0);
+    StoreImage(&dst11, (u_long*)readback11);
+    DrawSync(0);
+
+    zprintf("LoadImage must wrap right and bottom edge chunks to VRAM origin\n");
+    zexpect_u8array_eq(&pattern[0], readback00, sizeof(readback00));
+    zexpect_u8array_eq(&pattern[4], readback01, sizeof(readback01));
+    zexpect_u8array_eq(&pattern[8], readback10, sizeof(readback10));
+    zexpect_u8array_eq(&pattern[12], readback11, sizeof(readback11));
+}
+
 ZTEST(gpu, blit) {
     TIM_IMAGE tim;
     RECT rect = {16, 16, 64, 64};

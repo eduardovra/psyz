@@ -1206,6 +1206,14 @@ void Draw_SetOffset(int x, int y) {
     glUniform2f(uniform_draw_offset, (float)x, (float)y);
 }
 
+static int WrapVramCoord(int coord, int size) {
+    coord %= size;
+    if (coord < 0) {
+        coord += size;
+    }
+    return coord;
+}
+
 void Draw_ClearImage(PS1_RECT* rect, u_char r, u_char g, u_char b) {
     if (rect->w == 0 || rect->h == 0) {
         return;
@@ -1230,21 +1238,44 @@ void Draw_LoadImage(PS1_RECT* rect, u_long* p) {
     if (rect->w == 0 || rect->h == 0) {
         return;
     }
+    if (rect->w < 0 || rect->h < 0) {
+        WARNF("rect (%d,%d %dx%d) has negative size, skipping upload",
+              rect->x, rect->y, rect->w, rect->h);
+        return;
+    }
     if (!sdl3_window && !InitPlatform()) {
         return;
     }
-    size_t count = (size_t)rect->w * rect->h;
-    u8* buf = GetVramConvertBuffer(count * 4);
-    if (!buf) {
-        return;
-    }
-    ConvertRgb5551ToRgba8888((const u16*)p, buf, count);
+    const u16* src = (const u16*)p;
+    const int x = WrapVramCoord(rect->x, VRAM_W);
+    const int y = WrapVramCoord(rect->y, VRAM_H);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, vram_texture);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, rect->x, rect->y, rect->w, rect->h,
-                    GL_RGBA, GL_UNSIGNED_BYTE, buf);
-    SyncNativeVramToScaled(rect->x, rect->y, rect->w, rect->h);
+    // PS1 VRAM uploads wrap at the edges, so split the source into bounded
+    // chunks instead of rejecting the whole transfer.
+    for (int src_y = 0, dst_y = y; src_y < rect->h; dst_y = 0) {
+        const int chunk_h = SDL_min(rect->h - src_y, VRAM_H - dst_y);
+        for (int src_x = 0, dst_x = x; src_x < rect->w; dst_x = 0) {
+            const int chunk_w = SDL_min(rect->w - src_x, VRAM_W - dst_x);
+            const size_t count = (size_t)chunk_w * chunk_h;
+            u8* buf = GetVramConvertBuffer(count * 4);
+            if (!buf) {
+                return;
+            }
+            for (int row = 0; row < chunk_h; row++) {
+                const u16* chunk_src =
+                    src + (size_t)(src_y + row) * rect->w + src_x;
+                ConvertRgb5551ToRgba8888(
+                    chunk_src, buf + (size_t)row * chunk_w * 4, (size_t)chunk_w);
+            }
+            glTexSubImage2D(GL_TEXTURE_2D, 0, dst_x, dst_y, chunk_w, chunk_h,
+                            GL_RGBA, GL_UNSIGNED_BYTE, buf);
+            SyncNativeVramToScaled(dst_x, dst_y, chunk_w, chunk_h);
+            src_x += chunk_w;
+        }
+        src_y += chunk_h;
+    }
 }
 void Draw_StoreImage(PS1_RECT* rect, u_long* p) {
     if (rect->w == 0 || rect->h == 0) {

@@ -523,6 +523,14 @@ static SDL_GPUTexture* GetRenderTarget(void) {
 }
 
 static SDL_Rect vram_dirty = {0, 0, 0, 0};
+static int WrapVramCoord(int coord, int size) {
+    coord %= size;
+    if (coord < 0) {
+        coord += size;
+    }
+    return coord;
+}
+
 static void MarkVramDirty(SDL_Rect r) {
     if (r.w <= 0 || r.h <= 0) {
         return;
@@ -1429,10 +1437,9 @@ void Draw_LoadImage(PS1_RECT* rect, u_long* p) {
     if (rect->w == 0 || rect->h == 0) {
         return;
     }
-    if (rect->x < 0 || rect->y < 0 || rect->w < 0 || rect->h < 0 ||
-        rect->x + rect->w > VRAM_W || rect->y + rect->h > VRAM_H) {
-        WARNF("rect (%d,%d %dx%d) is out of bound %dx%d, skipping upload",
-              rect->x, rect->y, rect->w, rect->h, VRAM_W, VRAM_H);
+    if (rect->w < 0 || rect->h < 0) {
+        WARNF("rect (%d,%d %dx%d) has negative size, skipping upload",
+              rect->x, rect->y, rect->w, rect->h);
         return;
     }
     if (!sdl3_window && !InitPlatform()) {
@@ -1442,32 +1449,54 @@ void Draw_LoadImage(PS1_RECT* rect, u_long* p) {
     if (!cmd) {
         return;
     }
-    u8* map = SDL_MapGPUTransferBuffer(device, tex_upload_transfer, true);
-    if (!map) {
-        ERRORF("SDL_MapGPUTransferBuffer: %s", SDL_GetError());
-        return;
-    }
-    ConvertRgb5551ToRgba8888((const u16*)p, map, (size_t)rect->w * rect->h);
-    SDL_UnmapGPUTransferBuffer(device, tex_upload_transfer);
+    // PS1 VRAM uploads wrap at the edges, so split the source into bounded
+    // chunks instead of rejecting the whole transfer.
+    const u16* src = (const u16*)p;
+    const int x = WrapVramCoord(rect->x, VRAM_W);
+    const int y = WrapVramCoord(rect->y, VRAM_H);
+    for (int src_y = 0, dst_y = y; src_y < rect->h; dst_y = 0) {
+        const int chunk_h = SDL_min(rect->h - src_y, VRAM_H - dst_y);
+        for (int src_x = 0, dst_x = x; src_x < rect->w; dst_x = 0) {
+            const int chunk_w = SDL_min(rect->w - src_x, VRAM_W - dst_x);
+            u8* map = SDL_MapGPUTransferBuffer(device, tex_upload_transfer, true);
+            if (!map) {
+                ERRORF("SDL_MapGPUTransferBuffer: %s", SDL_GetError());
+                return;
+            }
+            for (int row = 0; row < chunk_h; row++) {
+                const u16* chunk_src =
+                    src + (size_t)(src_y + row) * rect->w + src_x;
+                ConvertRgb5551ToRgba8888(
+                    chunk_src, map + (size_t)row * chunk_w * 4,
+                    (size_t)chunk_w);
+            }
+            SDL_UnmapGPUTransferBuffer(device, tex_upload_transfer);
 
-    SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(cmd);
-    const SDL_GPUTextureTransferInfo src = {
-        .transfer_buffer = tex_upload_transfer,
-        .pixels_per_row = rect->w,
-        .rows_per_layer = rect->h,
-    };
-    const SDL_GPUTextureRegion dst = {
-        .texture = vram_render,
-        .x = (Uint32)rect->x,
-        .y = (Uint32)rect->y,
-        .w = rect->w,
-        .h = rect->h,
-        .d = 1,
-    };
-    SDL_UploadToGPUTexture(copy, &src, &dst, false);
-    SDL_EndGPUCopyPass(copy);
-    MarkVramDirty((SDL_Rect){rect->x, rect->y, rect->w, rect->h});
-    SyncNativeVramToScaled(rect->x, rect->y, rect->w, rect->h);
+            SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(cmd);
+            if (!copy) {
+                return;
+            }
+            const SDL_GPUTextureTransferInfo src_info = {
+                .transfer_buffer = tex_upload_transfer,
+                .pixels_per_row = (Uint32)chunk_w,
+                .rows_per_layer = (Uint32)chunk_h,
+            };
+            const SDL_GPUTextureRegion dst = {
+                .texture = vram_render,
+                .x = (Uint32)dst_x,
+                .y = (Uint32)dst_y,
+                .w = (Uint32)chunk_w,
+                .h = (Uint32)chunk_h,
+                .d = 1,
+            };
+            SDL_UploadToGPUTexture(copy, &src_info, &dst, false);
+            SDL_EndGPUCopyPass(copy);
+            MarkVramDirty((SDL_Rect){dst_x, dst_y, chunk_w, chunk_h});
+            SyncNativeVramToScaled(dst_x, dst_y, chunk_w, chunk_h);
+            src_x += chunk_w;
+        }
+        src_y += chunk_h;
+    }
 }
 
 void Draw_StoreImage(PS1_RECT* rect, u_long* p) {
