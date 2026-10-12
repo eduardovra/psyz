@@ -28,7 +28,7 @@ static void GPU_write_image() { NOT_IMPLEMENTED; }
 static void GPU_read_image() { NOT_IMPLEMENTED; }
 
 static int queue_len = 0;
-static u_long queue_buf[0x4000];
+static u_long queue_buf[0x10000];
 
 typedef struct {
     PsyzGpuCommandHandler handler;
