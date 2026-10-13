@@ -1438,8 +1438,8 @@ void Draw_LoadImage(PS1_RECT* rect, u_long* p) {
         return;
     }
     if (rect->w < 0 || rect->h < 0) {
-        WARNF("rect (%d,%d %dx%d) has negative size, skipping upload",
-              rect->x, rect->y, rect->w, rect->h);
+        WARNF("rect (%d,%d %dx%d) has negative size, skipping upload", rect->x,
+              rect->y, rect->w, rect->h);
         return;
     }
     if (!sdl3_window && !InitPlatform()) {
@@ -1458,7 +1458,8 @@ void Draw_LoadImage(PS1_RECT* rect, u_long* p) {
         const int chunk_h = SDL_min(rect->h - src_y, VRAM_H - dst_y);
         for (int src_x = 0, dst_x = x; src_x < rect->w; dst_x = 0) {
             const int chunk_w = SDL_min(rect->w - src_x, VRAM_W - dst_x);
-            u8* map = SDL_MapGPUTransferBuffer(device, tex_upload_transfer, true);
+            u8* map =
+                SDL_MapGPUTransferBuffer(device, tex_upload_transfer, true);
             if (!map) {
                 ERRORF("SDL_MapGPUTransferBuffer: %s", SDL_GetError());
                 return;

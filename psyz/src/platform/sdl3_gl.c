@@ -1239,8 +1239,8 @@ void Draw_LoadImage(PS1_RECT* rect, u_long* p) {
         return;
     }
     if (rect->w < 0 || rect->h < 0) {
-        WARNF("rect (%d,%d %dx%d) has negative size, skipping upload",
-              rect->x, rect->y, rect->w, rect->h);
+        WARNF("rect (%d,%d %dx%d) has negative size, skipping upload", rect->x,
+              rect->y, rect->w, rect->h);
         return;
     }
     if (!sdl3_window && !InitPlatform()) {
@@ -1267,7 +1267,8 @@ void Draw_LoadImage(PS1_RECT* rect, u_long* p) {
                 const u16* chunk_src =
                     src + (size_t)(src_y + row) * rect->w + src_x;
                 ConvertRgb5551ToRgba8888(
-                    chunk_src, buf + (size_t)row * chunk_w * 4, (size_t)chunk_w);
+                    chunk_src, buf + (size_t)row * chunk_w * 4,
+                    (size_t)chunk_w);
             }
             glTexSubImage2D(GL_TEXTURE_2D, 0, dst_x, dst_y, chunk_w, chunk_h,
                             GL_RGBA, GL_UNSIGNED_BYTE, buf);

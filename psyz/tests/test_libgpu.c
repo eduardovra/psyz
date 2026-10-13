@@ -677,7 +677,8 @@ ZTEST(gpu, load_image_wraps_across_vram_edges) {
     StoreImage(&dst11, (u_long*)readback11);
     DrawSync(0);
 
-    zprintf("LoadImage must wrap right and bottom edge chunks to VRAM origin\n");
+    zprintf(
+        "LoadImage must wrap right and bottom edge chunks to VRAM origin\n");
     zexpect_u8array_eq(&pattern[0], readback00, sizeof(readback00));
     zexpect_u8array_eq(&pattern[4], readback01, sizeof(readback01));
     zexpect_u8array_eq(&pattern[8], readback10, sizeof(readback10));
