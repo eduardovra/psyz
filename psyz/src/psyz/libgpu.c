@@ -135,6 +135,10 @@ static void DispatchPackets(u_long* buf, int len) {
 }
 
 int Psyz_GpuExeque() {
+    if (sizeof(void*) == 4) {
+        // 32-bit targets dispatch straight into the draw buffer
+        Draw_FlushBuffer();
+    }
     Draw_ResetBuffer();
     if (queue_len > 0) {
         DispatchPackets(queue_buf, queue_len);
@@ -171,6 +175,7 @@ static void GPU_Enqueue(u_long* packets) {
             INFOF("GPU queue full, calling exeque");
             Psyz_GpuExeque();
         }
+        // a flush empties the queue; the packet that did not fit still goes in
         if (sizeof(u_long) == 8) {
             // Wow okay, this part is uuuugly...
             // Gpu code is usually written to a u_long array, which will work
@@ -279,7 +284,7 @@ void Psyz_GpuDisplayCommand(unsigned int cmd) {
         LOG_ONCE("DMA direction not implemented");
         break;
     case 5:
-        Draw_DisplayArea(cmd & 0x3FF, (cmd >> 10) & 0x3FF);
+        Draw_DisplayArea(cmd & 0x3FE, (cmd >> 10) & 0x3FF);
         break;
     case 6:
         Draw_DisplayHorizontalRange(cmd & 0xFFF, (cmd >> 12) & 0xFFF);

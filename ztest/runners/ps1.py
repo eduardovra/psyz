@@ -1,13 +1,11 @@
 import contextlib
 import os
 import re
-import select
-import shutil
-import signal
-import subprocess
+import sys
+import threading
 import time
 
-from .base import Driver, Stream, fail, read_fd
+from .base import Driver, Stream, fail
 
 ANSI = re.compile(rb"\x1b\[[0-9;?]*[A-Za-z]")
 
@@ -30,72 +28,142 @@ class Ps1Emu(Driver):
 
 
 class Ps1Hw(Driver):
-    """Real hardware running UniROM: nops uploads the PS-EXE and then stays in
-    monitor mode (/m), streaming the TTY and serving PCDrv from --workdir."""
+    """Real hardware running UniROM: uploads the PS-EXE over serial, then
+    streams the TTY and serves PCDrv from --workdir."""
 
     target = "ps1"
 
     def launch(self, args):
-        nops = [self.executable("nops.exe")]
-        if nops[0].endswith(".exe"):
-            if not shutil.which("mono"):
-                fail("mono not found in PATH (needed to run nops.exe)")
-            nops.insert(0, "mono")
-        dest = self.opts.serial or "/dev/ttyUSB0"
+        from . import ps1_unirom_client as unirom
+        try:
+            import serial  # noqa: F401
+        except ImportError:
+            fail("pyserial not found (pip install pyserial)")
+        self.dest = self.opts.serial or find_serial()
         if not os.path.isfile(self.opts.exe):
             fail("PS-EXE not found: %s" % self.opts.exe)
-        if not os.path.exists(dest):
-            fail("serial device %s not found (pass --serial)" % dest)
+        if not os.path.exists(self.dest):
+            fail("serial device %s not found (pass --serial)" % self.dest)
         self.write_args_file(args)
-        self.log = os.path.join(self.opts.workdir, "ztest.log")
-        with contextlib.suppress(OSError):
-            os.remove(self.log)
-        # A fresh UniROM avoids faults left over from the previous program.
-        subprocess.run(nops + ["/fast", "/reset", "/dest", dest],
-                       cwd=self.opts.workdir, stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL, timeout=30)
-        time.sleep(3)
-        # mono block-buffers a pipe, so nops has to run on a pty.
-        exe = os.path.relpath(self.opts.exe, self.opts.workdir)
-        import pty
-        self.pid, self.fd = pty.fork()
-        if self.pid == 0:
-            os.chdir(self.opts.workdir)
-            os.execvp(nops[0], nops + ["/fast", "/exe", exe, "/m", "/dest",
-                                       dest])
+        low_latency(self.dest)
+        self.errors = unirom.Error
+        self.link = unirom.Unirom(self.dest, self.opts.workdir)
+        tap = find_spu_tap()
+        if tap:
+            self.link.devices[SpuTap.NAME] = SpuTap(tap).open
+        try:
+            self.link.connect()
+            self.link.upload(self.opts.exe)
+        except unirom.Error as e:
+            fail("%s (%s)" % (e, self.dest))
         return Stream(self.console())
 
     def console(self):
-        """nops injects PCDrv traffic via TTY, so ztest writes its
-        output to ztest.log through PCDrv instead; follow that file."""
-        with contextlib.suppress(OSError):
-            os.remove(self.log)
-        offset = 0
-        while True:
-            if select.select([self.fd], [], [], 0.05)[0]:
-                try:
-                    if not os.read(self.fd, 4096):
-                        return
-                except OSError:
-                    return
-            try:
-                with open(self.log, "rb") as f:
-                    f.seek(offset)
-                    data = f.read()
-            except OSError:
-                continue
-            if data:
-                offset += len(data)
-                yield data
+        try:
+            yield from self.link.console()
+        except self.errors as e:
+            yield ("\nzrunner: %s\n" % e).encode()
+        except Exception:
+            # stop() closes the port while this thread is still reading.
+            return
 
     def stop(self):
-        with contextlib.suppress(ProcessLookupError):
-            os.kill(self.pid, signal.SIGINT)
-        time.sleep(0.5)
-        with contextlib.suppress(ProcessLookupError):
-            os.kill(self.pid, signal.SIGTERM)
-        with contextlib.suppress(OSError):
-            os.close(self.fd)
-        with contextlib.suppress(ChildProcessError):
-            os.waitpid(self.pid, 0)
+        # Leaves a fresh UniROM behind, also when the program is still running.
+        with contextlib.suppress(Exception):
+            self.link.port.write(b"REST")
+            self.link.port.flush()
+        self.link.close()
         super().stop()
+
+
+class SpuTap:
+    """Frames the SPU clocks out to the DAC, read from a ps1-audio Pico. The
+    program opens it like a file and reads interleaved S16LE left/right."""
+
+    NAME = "spu_capture.raw"
+    # Longest wait for frames the console clocked out before it asked.
+    IN_FLIGHT = 0.02
+
+    def __init__(self, device):
+        import serial
+        self.port = serial.Serial(device, timeout=0.05)
+        self.frames = bytearray()
+        self.lock = threading.Lock()
+        self.recording = False
+        threading.Thread(target=self.pump, daemon=True).start()
+
+    def pump(self):
+        with contextlib.suppress(Exception):
+            while True:
+                data = self.port.read(self.port.in_waiting or 1)
+                with self.lock:
+                    self.frames += data
+                    if not self.recording:
+                        self.rewind()
+
+    def rewind(self):
+        # The stream is frame aligned from its first byte: drop whole frames.
+        del self.frames[:len(self.frames) & ~3]
+
+    def open(self):
+        """Starts a recording at the frame the DAC is being sent right now."""
+        time.sleep(self.IN_FLIGHT)
+        with self.lock:
+            self.rewind()
+            self.recording = True
+        return self
+
+    def read(self, size):
+        end = time.monotonic() + size / 176400 + 1
+        while len(self.frames) < size and time.monotonic() < end:
+            time.sleep(0.001)
+        with self.lock:
+            data = bytes(self.frames[:size])
+            del self.frames[:len(data)]
+        return data
+
+    def close(self):
+        self.recording = False
+
+
+def find_spu_tap():
+    from serial.tools import list_ports
+    found = [p.device for p in list_ports.comports()
+             if p.interface == "SPU Raw Stream"]
+    return found[0] if found else None
+
+
+def find_serial():
+    # USB vendors of the common UART adapters: FTDI, Silicon Labs, WCH, Prolific.
+    UART_VENDORS = (0x0403, 0x10C4, 0x1A86, 0x067B)
+    from serial.tools import list_ports
+    ports = list(list_ports.comports())
+    # "PS1 UART" is for custom Pico/Arduino/ESP32 devices
+    found = ([p.device for p in ports if p.interface == "PS1 UART"]
+             or [p.device for p in ports if p.vid in UART_VENDORS])
+    if not found:
+        fail("no PS1 serial adapter found (pass --serial)")
+    if len(found) > 1:
+        fail("several serial adapters found, pass --serial: %s"
+             % ", ".join(sorted(found)))
+    return found[0]
+
+
+def low_latency(dest):
+    """FTDI adapters hold short replies for 16ms unless the port asks for low
+    latency, which costs every PCDrv call and upload chunk a round trip."""
+    if not sys.platform.startswith("linux"):
+        return
+    import fcntl
+    import struct
+    TIOCGSERIAL, TIOCSSERIAL, ASYNC_LOW_LATENCY = 0x541E, 0x541F, 1 << 13
+    with contextlib.suppress(OSError):
+        fd = os.open(dest, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        try:
+            info = bytearray(fcntl.ioctl(fd, TIOCGSERIAL, bytes(128)))
+            flags = struct.unpack_from("i", info, 16)[0]
+            if not flags & ASYNC_LOW_LATENCY:
+                struct.pack_into("i", info, 16, flags | ASYNC_LOW_LATENCY)
+                fcntl.ioctl(fd, TIOCSSERIAL, bytes(info))
+        finally:
+            os.close(fd)

@@ -70,7 +70,8 @@ class Renderer:
 
     def start(self, name):
         if self.mode != "plain":
-            self.write(self.label("RUN", name))
+            self.write(("\r\x1b[K" if self.running else "")
+                       + self.label("RUN", name))
             self.running = name
 
     def finish(self, name, result):
@@ -273,6 +274,7 @@ def main():
                 break
             session.feed(data)
     finally:
+        driver.clean = session.done()
         driver.stop()
     driver.collect(session)
 

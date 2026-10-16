@@ -16,6 +16,7 @@ if(NOT PSP)
     set(SDL_SHARED OFF CACHE BOOL "" FORCE)
     set(SDL_STATIC ON CACHE BOOL "" FORCE)
     set(SDL_TEST OFF CACHE BOOL "" FORCE)
+    set(DARWIN ${APPLE})
     add_subdirectory(
         ${CMAKE_CURRENT_SOURCE_DIR}/../external/SDL
         ${CMAKE_CURRENT_BINARY_DIR}/sdl
@@ -28,6 +29,7 @@ set(PSYZ_SOURCES
     src/platform/psyz.c
     src/psyz/dma.c
     src/psyz/libapi.c
+    src/psyz/kernel.c
     src/psyz/libetc.c
     src/psyz/libgpu.c
     ../decomp/src/libcard/card.c
@@ -45,6 +47,16 @@ set(PSYZ_SOURCES
     src/psyz/libgte.c
     src/psyz/libgs.c
     src/psyz/libcd.c
+    ../decomp/src/libcd/c_002.c
+    ../decomp/src/libcd/c_003.c
+    ../decomp/src/libcd/c_004.c
+    ../decomp/src/libcd/c_005.c
+    ../decomp/src/libcd/c_007.c
+    ../decomp/src/libcd/c_008.c
+    ../decomp/src/libcd/c_009.c
+    ../decomp/src/libcd/c_010.c
+    ../decomp/src/libcd/cdread2.c
+    ../decomp/src/libcd/cdrom.c
     ../decomp/src/libcd/iso9660.c
     ../decomp/src/libcd/sys.c
     ../decomp/src/libcd/toc.c
@@ -116,6 +128,7 @@ set(PSYZ_SOURCES
     ../decomp/src/libsnd/playmode.c
     ../decomp/src/libsnd/replay.c
     ../decomp/src/libsnd/sepinit.c
+    ../decomp/src/libsnd/seqinit.c
     ../decomp/src/libsnd/sscall.c
     ../decomp/src/libsnd/ssclose.c
     ../decomp/src/libsnd/sscres.c
@@ -126,6 +139,8 @@ set(PSYZ_SOURCES
     ../decomp/src/libsnd/ssloop.c
     ../decomp/src/libsnd/ssopenp.c
     ../decomp/src/libsnd/ssopenpj.c
+    ../decomp/src/libsnd/ssopenq.c
+    ../decomp/src/libsnd/ssopenqj.c
     ../decomp/src/libsnd/ssplay.c
     ../decomp/src/libsnd/ssquit.c
     ../decomp/src/libsnd/sssattr.c
@@ -151,6 +166,7 @@ set(PSYZ_SOURCES
     ../decomp/src/libsnd/ut_ron.c
     ../decomp/src/libsnd/ut_vvol.c
     ../decomp/src/libsnd/vol.c
+    ../decomp/src/libsnd/vm_aloc1.c
     ../decomp/src/libsnd/vm_aloc2.c
     ../decomp/src/libsnd/vm_autop.c
     ../decomp/src/libsnd/vm_doff.c
@@ -161,6 +177,7 @@ set(PSYZ_SOURCES
     ../decomp/src/libsnd/vm_noff.c
     ../decomp/src/libsnd/vm_nowof.c
     ../decomp/src/libsnd/vm_nowon.c
+    ../decomp/src/libsnd/vm_seq.c
     ../decomp/src/libsnd/vm_vsu.c
     ../decomp/src/libsnd/vs_mono.c
     ../decomp/src/libsnd/vs_srv.c
@@ -173,6 +190,9 @@ set(PSYZ_SOURCES
     src/psyz/libsnd.c
     src/psyz/libsn.c
     src/psyz/libpress.c
+    ../decomp/src/libpress/libpress.c
+    src/psyz/mdec.c
+    src/psyz/vlc.c
 )
 
 # Choose sqrt implementation
@@ -198,12 +218,14 @@ if(EMSCRIPTEN)
     list(APPEND PSYZ_SOURCES src/platform/plat_unix.c)
     list(APPEND PSYZ_SOURCES src/platform/sdl3_log.c)
     list(APPEND PSYZ_SOURCES src/platform/sdl3_audio.c)
+    list(APPEND PSYZ_SOURCES src/platform/sdl3_os.c)
     list(APPEND PSYZ_SOURCES src/platform/sdl3_gl.c)
     list(APPEND PSYZ_SOURCES src/psyz/psyz_spu.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     list(APPEND PSYZ_SOURCES src/platform/plat_win.c)
     list(APPEND PSYZ_SOURCES src/platform/sdl3_log.c)
     list(APPEND PSYZ_SOURCES src/platform/sdl3_audio.c)
+    list(APPEND PSYZ_SOURCES src/platform/sdl3_os.c)
     list(APPEND PSYZ_SOURCES src/psyz/psyz_spu.c)
     list(APPEND PSYZ_SOURCES src/dbgserver/dbgserver.c)
     list(APPEND PSYZ_SOURCES src/platform/module_win.c)
@@ -227,6 +249,7 @@ elseif(ANDROID)
     list(APPEND PSYZ_SOURCES src/platform/plat_unix.c)
     list(APPEND PSYZ_SOURCES src/platform/sdl3_log.c)
     list(APPEND PSYZ_SOURCES src/platform/sdl3_audio.c)
+    list(APPEND PSYZ_SOURCES src/platform/sdl3_os.c)
     list(APPEND PSYZ_SOURCES src/platform/sdl3_gpu.c)
     list(APPEND PSYZ_SOURCES src/psyz/psyz_spu.c)
     list(APPEND PSYZ_SOURCES src/dbgserver/dbgserver.c)
@@ -236,6 +259,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     list(APPEND PSYZ_SOURCES src/platform/plat_unix.c)
     list(APPEND PSYZ_SOURCES src/platform/sdl3_log.c)
     list(APPEND PSYZ_SOURCES src/platform/sdl3_audio.c)
+    list(APPEND PSYZ_SOURCES src/platform/sdl3_os.c)
     list(APPEND PSYZ_SOURCES src/psyz/psyz_spu.c)
     list(APPEND PSYZ_SOURCES src/dbgserver/dbgserver.c)
     list(APPEND PSYZ_SOURCES src/platform/module_unix.c)
@@ -254,6 +278,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     list(APPEND PSYZ_SOURCES src/platform/plat_unix.c)
     list(APPEND PSYZ_SOURCES src/platform/sdl3_log.c)
     list(APPEND PSYZ_SOURCES src/platform/sdl3_audio.c)
+    list(APPEND PSYZ_SOURCES src/platform/sdl3_os.c)
     list(APPEND PSYZ_SOURCES src/platform/sdl3_gpu.c)
     list(APPEND PSYZ_SOURCES src/ios/ios_platform.m)
     list(APPEND PSYZ_SOURCES src/psyz/psyz_spu.c)
@@ -277,6 +302,7 @@ elseif(PSP)
     list(APPEND PSYZ_SOURCES src/psp/psp_input.c)
     list(APPEND PSYZ_SOURCES src/psp/psp_misc.c)
     list(APPEND PSYZ_SOURCES src/psp/psp_audio.c)
+    list(APPEND PSYZ_SOURCES src/psp/psp_os.c)
     list(APPEND PSYZ_SOURCES src/psp/psp_sas.c)
     list(APPEND PSYZ_LIBS pspdebug pspgu pspdisplay pspge pspdmac pspctrl pspaudio
         psppower pspsascore psputility)
@@ -288,6 +314,7 @@ else()
     list(APPEND PSYZ_SOURCES src/platform/plat_unix.c)
     list(APPEND PSYZ_SOURCES src/platform/sdl3_log.c)
     list(APPEND PSYZ_SOURCES src/platform/sdl3_audio.c)
+    list(APPEND PSYZ_SOURCES src/platform/sdl3_os.c)
     list(APPEND PSYZ_SOURCES src/psyz/psyz_spu.c)
     list(APPEND PSYZ_SOURCES src/dbgserver/dbgserver.c)
     list(APPEND PSYZ_SOURCES src/platform/module_unix.c)
@@ -300,8 +327,13 @@ else()
     endif()
 endif()
 
+if(NOT PSP AND NOT EMSCRIPTEN AND PSYZ_RENDERER STREQUAL "sdl3_gpu")
+    list(APPEND PSYZ_SOURCES src/platform/sdl3_software.c)
+endif()
+
 add_library(psyz STATIC ${PSYZ_SOURCES})
 target_compile_definitions(psyz PUBLIC __psyz)
+target_compile_definitions(psyz PRIVATE _FILE_OFFSET_BITS=64)
 if(EMSCRIPTEN)
     target_compile_definitions(psyz PUBLIC PLATFORM_WEB=1)
 endif()
