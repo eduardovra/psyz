@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 #include <kernel.h>
 #include <romio.h>
+#include "../internal.h"
 
 static void populate_entry(
     const char* baseDir, struct DIRENTRY* dst, struct dirent* src) {
@@ -182,7 +183,18 @@ long my_erase(char* path) {
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
-int psyz_open(const char* devname, int flag) {
+
+// The BIOS reports FASYNC memory-card I/O done with a SwCARD event; host I/O
+// is synchronous, so the event is raised as soon as read/write returns.
+static bool async_fds[256];
+
+static void complete_async(int fd, bool ok) {
+    if (fd >= 0 && fd < LEN(async_fds) && async_fds[fd]) {
+        Psyz_KernelRaise(SwCARD, ok ? EvSpIOE : EvSpERROR);
+    }
+}
+
+static int open_host(const char* devname, int flag) {
     int oflag = O_RDONLY;
     if (flag & FCREAT) {
         // as on Windows: creating implies writing
@@ -222,9 +234,6 @@ int psyz_open(const char* devname, int flag) {
     if (flag & FNBUF) {
         DEBUGF("FNBUF ignored for %s", devname);
     }
-    if (flag & FASYNC) {
-        DEBUGF("FASYNC ignored for %s", devname);
-    }
     if (flag & 0x10000) {
         DEBUGF("0x10000 ignored for %s", devname);
     }
@@ -252,14 +261,25 @@ int psyz_open(const char* devname, int flag) {
         return open(path, oflag);
     }
 }
+int psyz_open(const char* devname, int flag) {
+    int fd = open_host(devname, flag);
+    if (fd >= 0 && fd < LEN(async_fds)) {
+        async_fds[fd] = (flag & FASYNC) != 0;
+    }
+    return fd;
+}
 int psyz_close(int fd) { return (int)close((int)fd); }
 unsigned long psyz_lseek(int fd, unsigned int offset, int flag) {
     return lseek(fd, (off_t)offset, flag);
 }
 long psyz_read(long fd, void* buf, long n) {
-    return (long)read((int)fd, buf, (size_t)n);
+    long ret = (long)read((int)fd, buf, (size_t)n);
+    complete_async((int)fd, ret == n);
+    return ret;
 }
 int psyz_write(int fd, char* buf, int n) {
-    return (int)write(fd, buf, (size_t)n);
+    int ret = (int)write(fd, buf, (size_t)n);
+    complete_async(fd, ret == n);
+    return ret;
 }
 long psyz_ioctl(int fd, int com, int arg) { return ioctl(fd, com, arg); }
