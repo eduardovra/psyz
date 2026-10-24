@@ -199,6 +199,7 @@ static Uint64 finish_time = 0;
 static double drift_compensation = 0.0;
 static PsyzVsyncMode vsync_mode = PSYZ_VSYNC_AUTO;
 static PsyzDitherMode dither_mode = PSYZ_DITHER_AUTO;
+static PsyzFilter2DMode filter2d_mode = PSYZ_FILTER2D_OFF;
 static bool use_driver_vsync = false;
 static PsyzVideoStats gpu_stats = {0};
 
@@ -525,6 +526,19 @@ int Psyz_VideoSetDitheringMode(PsyzDitherMode mode) {
 }
 
 PsyzDitherMode Psyz_VideoGetDitheringMode(void) { return dither_mode; }
+
+int Psyz_VideoSetFilter2DMode(PsyzFilter2DMode mode) {
+    if (mode != PSYZ_FILTER2D_OFF && mode != PSYZ_FILTER2D_XBR) {
+        return -1;
+    }
+    if (filter2d_mode != mode) {
+        Draw_FlushBuffer();
+        filter2d_mode = mode;
+    }
+    return 0;
+}
+
+PsyzFilter2DMode Psyz_VideoGetFilter2DMode(void) { return filter2d_mode; }
 
 int Psyz_VideoStats(PsyzVideoStats* stats) {
     if (!stats || !is_platform_init_successful) {

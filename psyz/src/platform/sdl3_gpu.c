@@ -218,6 +218,10 @@ static SDL_GPUGraphicsPipeline* CreatePsxPipeline(
          .buffer_slot = 0,
          .format = SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4,
          .offset = offsetof(Vertex, twin)},
+        {.location = 4,
+         .buffer_slot = 0,
+         .format = SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4,
+         .offset = offsetof(Vertex, uvbox)},
     };
     // the shader outputs alpha 0 on B-F texels and alpha 1 on opaque ones
     static const SDL_GPUColorTargetBlendState blend[BLEND_COUNT] = {
@@ -1161,6 +1165,16 @@ int Draw_ExequeSync() { return 0; }
 
 // optimization to avoid sampling the VRAM on an untextured batch draw
 static bool batch_has_texture = false;
+
+static bool CanFilter2D(void) {
+    return filter2d_mode != PSYZ_FILTER2D_OFF && internal_res > 1;
+}
+
+// PGXP gives every vertex the GTE projected a depth; such a quad is 3D
+static bool IsProjectedQuad(const Vertex* v) {
+    return v[0].w > 0.0f && v[1].w > 0.0f && v[2].w > 0.0f && v[3].w > 0.0f;
+}
+
 int Draw_PushPrim(u_long* packets, int max_len) {
     int len = max_len;
     int code = (int)(*packets >> 24) & 0xFF;
@@ -1228,6 +1242,11 @@ int Draw_PushPrim(u_long* packets, int max_len) {
             tpage |= TPAGE_POLYGON;
             if (CanPolyDither(isGouraud, isTextured, isShadeTex)) {
                 tpage |= TPAGE_DITHER;
+            }
+            if (isTextured && nVertices == 4 && CanFilter2D() &&
+                !IsProjectedQuad(vertex_cur) &&
+                IsScreenAlignedQuad(vertex_cur)) {
+                SetFilter2D(vertex_cur, &tpage);
             }
             if (!isGouraud || !isShadeTex) {
                 VRGBA(vertex_cur[1]) = VRGBA(vertex_cur[2]) =
@@ -1416,6 +1435,9 @@ int Draw_PushPrim(u_long* packets, int max_len) {
         }
         VRGBA(vertex_cur[1]) = VRGBA(vertex_cur[2]) = VRGBA(vertex_cur[3]) =
             VRGBA(vertex_cur[0]);
+        if (isTextured && CanFilter2D()) {
+            SetFilter2D(vertex_cur, &tpage);
+        }
         index_cur[0] = n_vertices + 0;
         index_cur[1] = n_vertices + 1;
         index_cur[2] = n_vertices + 2;

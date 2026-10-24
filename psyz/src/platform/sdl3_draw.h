@@ -29,12 +29,14 @@ typedef struct {
     unsigned short u, v, c, t;
     unsigned char r, g, b, a;
     unsigned int twin;
+    unsigned int uvbox; // texels the 2D filter may read, see SetFilter2D
 } Vertex;
 
 // ===== SDL3 reserved TPAGE flags, invalid on real hardware =====
 #define TPAGE_NOTEXTURE 0x8000 // flag untextured poly
 #define TPAGE_DITHER 0x4000    // flag a dithered primitive
 #define TPAGE_POLYGON 0x2000   // flag a polygon to sample at PS1 integer coords
+#define TPAGE_FILTER 0x1000    // flag a 2D primitive for PSYZ_FILTER2D_XBR
 
 #define VRGBA(p) (*(unsigned int*)(&((p).r)))
 #define SET_TC(p, tpage, clut)                                                 \
@@ -94,6 +96,28 @@ static void PolygonSettleDepth(Vertex* v, int n) {
             return;
         }
     }
+}
+
+// A textured quad drawn straight on screen, like a sprite: sides on the axes
+// and U following X, V following Y. 3D polygons almost never line up so.
+static bool IsScreenAlignedQuad(const Vertex* v) {
+    return v[0].y == v[1].y && v[2].y == v[3].y && v[0].x == v[2].x &&
+           v[1].x == v[3].x && v[0].v == v[1].v && v[2].v == v[3].v &&
+           v[0].u == v[2].u && v[1].u == v[3].u;
+}
+
+// Flags a 2D quad for the filter, which reads the texels around each one it
+// draws; the box keeps it from reading the neighbours in the texture atlas.
+static void SetFilter2D(Vertex* v, u16* tpage) {
+    unsigned u0 = SDL_min(v[0].u, v[3].u), u1 = SDL_max(v[0].u, v[3].u);
+    unsigned v0 = SDL_min(v[0].v, v[3].v), v1 = SDL_max(v[0].v, v[3].v);
+    // a quad's far edge is one past its last texel
+    u1 -= u1 > u0;
+    v1 -= v1 > v0;
+    for (int i = 0; i < 4; i++) {
+        v[i].uvbox = TWIN_PACK(u0, v0, u1, v1);
+    }
+    *tpage |= TPAGE_FILTER;
 }
 
 // real hardware use XY coords as signed 11-bit

@@ -4,6 +4,7 @@ layout(location = 0) in vec3 pos;   // SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3
 layout(location = 1) in uvec4 tex;  // SDL_GPU_VERTEXELEMENTFORMAT_USHORT4
 layout(location = 2) in vec4 color; // SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM
 layout(location = 3) in uvec4 twin; // SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4
+layout(location = 4) in uvec4 uvbox; // SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4
 
 layout(set = 1, binding = 0) uniform UBO { vec2 drawOffset, halfPixel; };
 
@@ -20,6 +21,9 @@ layout(location = 8) flat out uint indexMask;    // Mask for color index
 layout(location = 9) flat out uint dither;      // 1 when this primitive dithers
 layout(location = 10) flat out ivec2 pageBase;   // texture page origin, in VRAM pixels
 layout(location = 11) flat out uvec4 texWindow;  // GP0(E2h) as {and.xy, or.zw}
+layout(location = 12) out vec2 filterUV;         // UV with texel centres at .5
+layout(location = 13) flat out uvec4 filterBox;  // texels to read, {min.xy, max.zw}
+layout(location = 14) flat out uint filter2d;    // 1 to draw with xBR
 
 void main() {
     // polygons move their PS1 integer coords onto the pixel centres, while
@@ -40,6 +44,9 @@ void main() {
     tpage = texWord & 0x1FFu;
     dither = (texWord & 0x4000u) != 0u ? 1u : 0u;
     rawUV = vec2(tex.xy) + shift - halfPixel;
+    filterUV = vec2(tex.xy) + shift;
+    filterBox = uvbox;
+    filter2d = (texWord & 0x1000u) != 0u ? 1u : 0u;
     // Determine texture mode and pre-compute parameters
     subPixelMask = 0u;
     texelShift = 0u;

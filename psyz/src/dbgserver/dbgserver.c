@@ -80,6 +80,9 @@ typedef struct {
 
     int set_pgxp;
     int pgxp;
+
+    int set_filter2d;
+    int filter2d;
 } DbgConfigArgs;
 
 typedef struct {
@@ -406,6 +409,10 @@ static const ModeEntry g_pgxp_modes[] = {
     {"off", 0},
     {"on", 1},
 };
+static const ModeEntry g_filter2d_modes[] = {
+    {"off", PSYZ_FILTER2D_OFF},
+    {"xbr", PSYZ_FILTER2D_XBR},
+};
 
 static const char* ModeName(const ModeEntry* table, int count, int value) {
     for (int i = 0; i < count; i++) {
@@ -447,7 +454,7 @@ static void FormatConfigJson(char* out, int out_len) {
     snprintf(
         out, out_len,
         "{\"vsync\":\"%s\",\"dither\":\"%s\",\"aspect\":\"%s\",\n"
-        "\"pgxp\":\"%s\",\"internal_resolution\":%u,\n"
+        "\"pgxp\":\"%s\",\"filter2d\":\"%s\",\"internal_resolution\":%u,\n"
         "\"display_size\":{\"w\":%d,\"h\":%d}}\n",
         ModeName(g_vsync_modes, LEN(g_vsync_modes), Psyz_VideoGetVsyncMode()),
         ModeName(
@@ -455,6 +462,8 @@ static void FormatConfigJson(char* out, int out_len) {
         ModeName(
             g_aspect_modes, LEN(g_aspect_modes), Psyz_VideoGetAspectMode()),
         ModeName(g_pgxp_modes, LEN(g_pgxp_modes), Psyz_GteGetPgxp()),
+        ModeName(g_filter2d_modes, LEN(g_filter2d_modes),
+                 Psyz_VideoGetFilter2DMode()),
         Psyz_VideoGetInternalResolution(), disp.w, disp.h);
 }
 
@@ -486,6 +495,11 @@ static void CmdConfigSet(DbgCommand* cmd) {
     }
     if (a->set_pgxp) {
         Psyz_GteSetPgxp(a->pgxp);
+    }
+    if (a->set_filter2d &&
+        Psyz_VideoSetFilter2DMode((PsyzFilter2DMode)a->filter2d) != 0) {
+        cmd->ok = 0;
+        return;
     }
     FormatConfigJson(cmd->json, sizeof(cmd->json));
     cmd->ok = 1;
@@ -711,6 +725,8 @@ static void EpConfigSet(const HttpRequest* hr, dbg_socket_t sock) {
         {"aspect", g_aspect_modes, LEN(g_aspect_modes), &a->set_aspect,
          &a->aspect},
         {"pgxp", g_pgxp_modes, LEN(g_pgxp_modes), &a->set_pgxp, &a->pgxp},
+        {"filter2d", g_filter2d_modes, LEN(g_filter2d_modes), &a->set_filter2d,
+         &a->filter2d},
     };
 
     char val[32];
@@ -809,7 +825,7 @@ static const DbgRoute g_routes[] = {
     {"/config",
      {EpConfigGet, "read video config", NULL},
      {EpConfigSet, "apply video config",
-      "vsync,dither,aspect,pgxp,internal_resolution"}},
+      "vsync,dither,aspect,pgxp,filter2d,internal_resolution"}},
     {"/input",
      {NULL, NULL, NULL},
      {EpInputQueue, "queue scripted input", "port,buttons,frames"}},

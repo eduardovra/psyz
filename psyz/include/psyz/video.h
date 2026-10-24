@@ -73,6 +73,11 @@ typedef enum {
 } PsyzDitherMode;
 
 typedef enum {
+    PSYZ_FILTER2D_OFF, /**< draw 2D sprites texel by texel (default) */
+    PSYZ_FILTER2D_XBR, /**< smooth 2D sprite edges with xBR when upscaling */
+} PsyzFilter2DMode;
+
+typedef enum {
     PSYZ_ASPECT_DISPLAY, /**< aspect from PS1 H/V display ranges (default) */
     PSYZ_ASPECT_SQUARE,  /**< 1:1 from framebuffer (pixel-perfect) */
 } PsyzAspectMode;
@@ -114,6 +119,25 @@ PsyzDitherMode Psyz_VideoGetDitheringMode(void);
  * @return 0 on success, -1 if invalid mode
  */
 int Psyz_VideoSetDitheringMode(PsyzDitherMode mode);
+
+/**
+ * @brief Get the current 2D filter mode
+ *
+ * @return current 2D filter mode
+ */
+PsyzFilter2DMode Psyz_VideoGetFilter2DMode(void);
+
+/**
+ * @brief Set how 2D sprites are drawn at higher internal resolutions
+ *
+ * XBR applies to sprites and textured quads drawn straight on screen (text,
+ * windows, icons), redrawing their edges at the internal resolution while
+ * keeping the original palette colors. Only the SDL_GPU backend filters.
+ *
+ * @param mode 2D filter mode to set
+ * @return 0 on success, -1 if invalid mode
+ */
+int Psyz_VideoSetFilter2DMode(PsyzFilter2DMode mode);
 
 /**
  * @brief Get the current aspect mode
