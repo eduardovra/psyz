@@ -24,7 +24,7 @@ int Draw_SetHorizontalGrid(
 }
 
 typedef struct {
-    short x, y;
+    float x, y; // fractional only for PGXP polygon vertices
     unsigned short u, v, c, t;
     unsigned char r, g, b, a;
     unsigned int twin;
@@ -90,8 +90,10 @@ static int writePacket(Vertex* v, int code, int n, u_long* packet, u16* pOut) {
     if (!n) {
         return 0;
     }
-    v->x = s11(((short*)packet)[0]);
-    v->y = s11(((short*)packet)[1]);
+    if (!Psyz_PgxpLookup((unsigned int)*packet, &v->x, &v->y)) {
+        v->x = s11(((short*)packet)[0]);
+        v->y = s11(((short*)packet)[1]);
+    }
     packet++;
     n--;
     if (!n) {

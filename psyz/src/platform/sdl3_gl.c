@@ -966,7 +966,7 @@ static void Draw_InitBuffer() {
         GL_ELEMENT_ARRAY_BUFFER, sizeof(index_buf), index_buf, GL_DYNAMIC_DRAW);
 
     glVertexAttribPointer(
-        0, 2, GL_SHORT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, x));
+        0, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, x));
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 4, GL_UNSIGNED_SHORT, GL_FALSE, sizeof(Vertex),
                           (void*)offsetof(Vertex, u));

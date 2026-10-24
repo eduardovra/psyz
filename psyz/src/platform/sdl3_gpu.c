@@ -204,7 +204,7 @@ static SDL_GPUGraphicsPipeline* CreatePsxPipeline(
     const SDL_GPUVertexAttribute attribs[] = {
         {.location = 0,
          .buffer_slot = 0,
-         .format = SDL_GPU_VERTEXELEMENTFORMAT_SHORT2,
+         .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
          .offset = offsetof(Vertex, x)},
         {.location = 1,
          .buffer_slot = 0,
@@ -297,7 +297,7 @@ static SDL_GPUGraphicsPipeline* CreateClearPipeline(
     const SDL_GPUVertexAttribute attribs[] = {
         {.location = 0,
          .buffer_slot = 0,
-         .format = SDL_GPU_VERTEXELEMENTFORMAT_SHORT2,
+         .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
          .offset = offsetof(Vertex, x)},
         {.location = 1,
          .buffer_slot = 0,

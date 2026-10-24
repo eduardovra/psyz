@@ -141,6 +141,23 @@ void Psyz_GteStsz4(unsigned int* out0, unsigned int* out1, unsigned int* out2,
 void Psyz_GteStsz3c(unsigned int* out);
 void Psyz_GteStsz4c(unsigned int* out);
 
+/**
+ * @brief Enable sub-pixel vertex precision (PGXP)
+ *
+ * The GTE rounds every projected vertex to a whole pixel, which makes
+ * polygons wobble at higher internal resolutions. When enabled, a polygon
+ * vertex whose screen XY came from a perspective transformation in the
+ * current or previous frame is drawn at its exact projected position.
+ *
+ * @param enable 1 to enable, 0 to draw the whole-pixel positions (default)
+ */
+void Psyz_GteSetPgxp(int enable);
+
+/**
+ * @brief Whether sub-pixel vertex precision (PGXP) is enabled
+ */
+int Psyz_GteGetPgxp(void);
+
 #ifdef __cplusplus
 }
 #endif

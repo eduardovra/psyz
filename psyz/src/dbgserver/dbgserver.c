@@ -21,6 +21,7 @@ typedef int dbg_socket_t;
 #include <psyz.h>
 #include <common.h>
 #include <psyz/video.h>
+#include <psyz/gte.h>
 #include <psyz/input.h>
 #include <psyz/system.h>
 #include <psyz/log.h>
@@ -76,6 +77,9 @@ typedef struct {
 
     int set_internal_resolution;
     unsigned internal_resolution;
+
+    int set_pgxp;
+    int pgxp;
 } DbgConfigArgs;
 
 typedef struct {
@@ -398,6 +402,10 @@ static const ModeEntry g_aspect_modes[] = {
     {"display", PSYZ_ASPECT_DISPLAY},
     {"square", PSYZ_ASPECT_SQUARE},
 };
+static const ModeEntry g_pgxp_modes[] = {
+    {"off", 0},
+    {"on", 1},
+};
 
 static const char* ModeName(const ModeEntry* table, int count, int value) {
     for (int i = 0; i < count; i++) {
@@ -439,12 +447,14 @@ static void FormatConfigJson(char* out, int out_len) {
     snprintf(
         out, out_len,
         "{\"vsync\":\"%s\",\"dither\":\"%s\",\"aspect\":\"%s\",\n"
-        "\"internal_resolution\":%u,\"display_size\":{\"w\":%d,\"h\":%d}}\n",
+        "\"pgxp\":\"%s\",\"internal_resolution\":%u,\n"
+        "\"display_size\":{\"w\":%d,\"h\":%d}}\n",
         ModeName(g_vsync_modes, LEN(g_vsync_modes), Psyz_VideoGetVsyncMode()),
         ModeName(
             g_dither_modes, LEN(g_dither_modes), Psyz_VideoGetDitheringMode()),
         ModeName(
             g_aspect_modes, LEN(g_aspect_modes), Psyz_VideoGetAspectMode()),
+        ModeName(g_pgxp_modes, LEN(g_pgxp_modes), Psyz_GteGetPgxp()),
         Psyz_VideoGetInternalResolution(), disp.w, disp.h);
 }
 
@@ -473,6 +483,9 @@ static void CmdConfigSet(DbgCommand* cmd) {
         Psyz_VideoSetInternalResolution(a->internal_resolution) != 0) {
         cmd->ok = 0;
         return;
+    }
+    if (a->set_pgxp) {
+        Psyz_GteSetPgxp(a->pgxp);
     }
     FormatConfigJson(cmd->json, sizeof(cmd->json));
     cmd->ok = 1;
@@ -697,6 +710,7 @@ static void EpConfigSet(const HttpRequest* hr, dbg_socket_t sock) {
          &a->dither},
         {"aspect", g_aspect_modes, LEN(g_aspect_modes), &a->set_aspect,
          &a->aspect},
+        {"pgxp", g_pgxp_modes, LEN(g_pgxp_modes), &a->set_pgxp, &a->pgxp},
     };
 
     char val[32];
@@ -795,7 +809,7 @@ static const DbgRoute g_routes[] = {
     {"/config",
      {EpConfigGet, "read video config", NULL},
      {EpConfigSet, "apply video config",
-      "vsync,dither,aspect,internal_resolution"}},
+      "vsync,dither,aspect,pgxp,internal_resolution"}},
     {"/input",
      {NULL, NULL, NULL},
      {EpInputQueue, "queue scripted input", "port,buttons,frames"}},

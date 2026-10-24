@@ -1845,6 +1845,97 @@ static unsigned clz16(unsigned x) {
     } while (0)
 #endif
 
+// PGXP: every projection also records its exact screen position, keyed by
+// the whole-pixel SXY it produced, for the renderer to draw polygons with.
+#define PGXP_SLOTS 0x10000
+#define PGXP_PROBES 8
+
+typedef struct {
+    unsigned int sxy;
+    unsigned int frame;
+    float x, y;
+} PgxpSlot;
+
+static PgxpSlot pgxp_slots[PGXP_SLOTS];
+// a slot is live for the frame that stored it and the next one, so frame 0
+// (zeroed slots) is never live
+static unsigned int pgxp_frame = 2;
+static int pgxp_enabled = 0;
+
+static int PgxpLive(const PgxpSlot* s) { return s->frame + 1 >= pgxp_frame; }
+
+static PgxpSlot* PgxpProbe(unsigned int sxy, int i) {
+    unsigned int hash = (sxy * 2654435761u) >> 16;
+    return &pgxp_slots[(hash + (unsigned int)i) & (PGXP_SLOTS - 1)];
+}
+
+static void PgxpStore(unsigned int sxy, float x, float y) {
+    PgxpSlot* slot = NULL;
+    for (int i = 0; i < PGXP_PROBES; i++) {
+        PgxpSlot* s = PgxpProbe(sxy, i);
+        if (s->sxy == sxy) {
+            slot = s;
+            break;
+        }
+        if (!slot && !PgxpLive(s)) {
+            slot = s;
+        }
+    }
+    if (!slot) {
+        slot = PgxpProbe(sxy, 0);
+    }
+    slot->sxy = sxy;
+    slot->frame = pgxp_frame;
+    slot->x = x;
+    slot->y = y;
+}
+
+int Psyz_PgxpLookup(unsigned int sxy, float* x, float* y) {
+    if (!pgxp_enabled) {
+        return 0;
+    }
+    for (int i = 0; i < PGXP_PROBES; i++) {
+        PgxpSlot* s = PgxpProbe(sxy, i);
+        if (s->sxy == sxy && PgxpLive(s)) {
+            *x = s->x;
+            *y = s->y;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void Psyz_PgxpNextFrame(void) { pgxp_frame++; }
+
+void Psyz_GteSetPgxp(int enable) { pgxp_enabled = !!enable; }
+
+int Psyz_GteGetPgxp(void) { return pgxp_enabled; }
+
+static double PgxpTransform(int row, int vx, int vy, int vz) {
+    double sum = (double)M.m[row][0] * vx + (double)M.m[row][1] * vy +
+                 (double)M.m[row][2] * vz;
+    return M.t[row] + sum / 4096.0;
+}
+
+// Redoes the projection of RTP_VERTEX with sf=1 in floating point.
+static void PgxpRecord(int vx, int vy, int vz, int sx, int sy) {
+    double x = PgxpTransform(0, vx, vy, vz);
+    double y = PgxpTransform(1, vx, vy, vz);
+    double z = PgxpTransform(2, vx, vy, vz);
+    double px, py;
+
+    if (z * 2.0 <= H) {
+        return; // the GTE clamps its divide here
+    }
+    // the GTE floors H * x / z; -0.5 centres the exact positions on it
+    px = OFX + H * x / z - 0.5;
+    py = OFY + H * y / z - 0.5;
+    if (px < sx - 1.0 || px > sx + 1.0 || py < sy - 1.0 || py > sy + 1.0) {
+        return; // saturated
+    }
+    PgxpStore(SXY(sx, sy), (float)px, (float)py);
+}
+
 // Perspective transformation of one vertex into caller locals.
 #define RTP_VERTEX(                                                            \
     sf, lm, x, y, z, f, div, mac1, mac2, mac3, ir1, ir2, ir3, sx, sy, sz)      \
@@ -1878,6 +1969,8 @@ static unsigned clz16(unsigned x) {
         (sy) = OFY + MUL_DIV_HI(div, ir2);                                     \
         MAC0_OVF(sy, f);                                                       \
         SAT_FLAG(sy, sy, -0x400, 0x3FF, FLAG_SY2_SAT, f);                      \
+        if (pgxp_enabled && (sf))                                              \
+            PgxpRecord(rv_x, rv_y, rv_z, sx, sy);                              \
     } while (0)
 
 #define RTP_STORE_MAC_IR()                                                     \

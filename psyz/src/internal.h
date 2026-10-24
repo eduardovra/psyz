@@ -23,6 +23,13 @@
 #define VRAM_W 1024
 #define VRAM_H 512
 
+// PGXP (Psyz_GteSetPgxp): the exact position of the vertex the GTE projected
+// to the packed screen XY sxy in this frame or the previous one, if any.
+int Psyz_PgxpLookup(unsigned int sxy, float* x, float* y);
+
+// Ages the PGXP positions; VSync calls it once per frame.
+void Psyz_PgxpNextFrame(void);
+
 // SDL platform lifecycle code uses this to avoid undoing an explicit game
 // audio pause when the application returns from the background.
 int Psyz_AudioIsPaused(void);
