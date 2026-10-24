@@ -25,6 +25,12 @@ extern "C" {
 
 typedef void (*SndSsMarkCallbackProc)(short seq_no, short sep_no, short data);
 typedef void (*sCb)();
+// The argument lists _SsFCALL's handlers are called with.
+typedef void (*SsNoteOnProc)(short seq_no, short sep_no, u8 note, u8 velocity);
+typedef void (*SsSeqDataProc)(short seq_no, short sep_no, u8 data);
+typedef void (*SsSeqProc)(short seq_no, short sep_no);
+typedef void (*SsNrpnAttrProc)(
+    short vabId, short prog, short tone, VagAtr vagAtr, short attr, u8 value);
 
 #define NUM_CC 13
 #define NUM_DE 20
@@ -273,7 +279,17 @@ void _SsUtResolveADSR(u16 arg0, u16 arg1, struct Unk* arg2);
 void _SsVmSeqKeyOff(s16 seq_sep_num);
 short _SsVmSetSeqVol(
     short seq_sep_no, unsigned short voll, unsigned short volr, short arg3);
-void _SsVmGetSeqVol(short seq_sep_no, short* voll, short* volr);
+short _SsVmGetSeqVol(short seq_sep_no, short* voll, short* volr);
+int _SsVmKeyOn(
+    short seq_sep_no, short vabId, short prog, u16 note, u16 voll, u16 pan);
+int _SsVmKeyOff(short seq_sep_no, short vabId, short prog, u16 note);
+short _SsVmSetVol(short seq_sep_no, short vabId, short prog, u16 vol, u16 pan);
+short _SsVmSetProgVol(short vabId, short prog, u8 vol);
+short _SsVmPitchBend(short seq_sep_no, short vabId, short prog, u16 bend);
+void _SsVmDamperOn(void);
+u8 _SsVmSelectToneAndVag(u8* toneIdx, u8* vagIdx);
+unsigned short note2pitch(void);
+void _SsSndNextSep(short seq_no, short sep_no);
 void _spu_setInTransfer(s32);
 void vmNoiseOn2(u8 arg0, u16 arg1, u16 arg2, u16 arg3, u16 arg4);
 void _SsSndSetVolData(

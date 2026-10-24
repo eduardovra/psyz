@@ -75,7 +75,19 @@ short _SsVmSetSeqVol(short seq_sep_no, u16 voll, u16 volr, short arg3) {
     return _svm_cur.seq_sep_no;
 }
 
+#ifndef __psyz
 INCLUDE_ASM("asm/nonmatchings/libsnd/vm_seq", _SsVmGetSeqVol);
+#else
+short _SsVmGetSeqVol(short seq_sep_no, short* voll, short* volr) {
+    struct SeqStruct* score =
+        &_ss_score[seq_sep_no & 0xFF][(seq_sep_no & 0xFF00) >> 8];
+
+    _svm_cur.seq_sep_no = seq_sep_no;
+    *voll = score->voll;
+    *volr = score->volr;
+    return _svm_cur.seq_sep_no;
+}
+#endif
 
 INCLUDE_ASM("asm/nonmatchings/libsnd/vm_seq", _SsVmGetSeqLVol);
 
