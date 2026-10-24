@@ -43,7 +43,7 @@ static const char shader_prologue_es[] = {
     "precision highp sampler2D;\n"};
 
 static const char vertex_shader_body[] = {
-    "layout(location = 0) in vec2 pos;\n"
+    "layout(location = 0) in vec3 pos;\n"
     "layout(location = 1) in vec4 tex;\n"
     "layout(location = 2) in vec4 color;\n"
     "layout(location = 3) in vec4 twin;\n"
@@ -69,7 +69,9 @@ static const char vertex_shader_body[] = {
     "    vec2 shift = (uint(tex.w) & 0x2000u) != 0u ? halfPixel : vec2(0.0);\n"
     "    float x = ((pos.x + drawOffset.x + shift.x) / (1024.0 / 2.0)) - 1.0;\n"
     "    float y = ((pos.y + drawOffset.y + shift.y) / (512.0 / 2.0)) - 1.0;\n"
-    "    gl_Position = vec4(x, y, 0.0, 1.0);\n"
+    // a PGXP polygon's depth makes the GPU interpolate UVs with perspective
+    "    float w = (uint(tex.w) & 0x2000u) != 0u ? pos.z : 1.0;\n"
+    "    gl_Position = vec4(x * w, y * w, 0.0, w);\n"
     // gouraud colors
     "    vertexColor = color;\n"
     // select the right texture coords based on the tpage
@@ -966,7 +968,7 @@ static void Draw_InitBuffer() {
         GL_ELEMENT_ARRAY_BUFFER, sizeof(index_buf), index_buf, GL_DYNAMIC_DRAW);
 
     glVertexAttribPointer(
-        0, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, x));
+        0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, x));
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 4, GL_UNSIGNED_SHORT, GL_FALSE, sizeof(Vertex),
                           (void*)offsetof(Vertex, u));
@@ -1053,6 +1055,7 @@ int Draw_PushPrim(u_long* packets, int max_len) {
                     VRGBA(vertex_cur[3]) = VRGBA(vertex_cur[0]);
             }
 
+            PolygonSettleDepth(vertex_cur, nVertices);
             SET_TC_ALL(vertex_cur, tpage, clut);
             Draw_EnqueueBuffer(nVertices, nIndices);
         } else {

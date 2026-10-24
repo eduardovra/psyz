@@ -204,7 +204,7 @@ static SDL_GPUGraphicsPipeline* CreatePsxPipeline(
     const SDL_GPUVertexAttribute attribs[] = {
         {.location = 0,
          .buffer_slot = 0,
-         .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
+         .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
          .offset = offsetof(Vertex, x)},
         {.location = 1,
          .buffer_slot = 0,
@@ -1234,6 +1234,7 @@ int Draw_PushPrim(u_long* packets, int max_len) {
                     VRGBA(vertex_cur[3]) = VRGBA(vertex_cur[0]);
             }
 
+            PolygonSettleDepth(vertex_cur, nVertices);
             SET_TC_ALL(vertex_cur, tpage, clut);
             Draw_EnqueueBuffer(nVertices, nIndices);
         } else {

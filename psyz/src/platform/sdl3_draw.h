@@ -25,6 +25,7 @@ int Draw_SetHorizontalGrid(
 
 typedef struct {
     float x, y; // fractional only for PGXP polygon vertices
+    float w;    // PGXP polygon depth; the shader ignores it elsewhere
     unsigned short u, v, c, t;
     unsigned char r, g, b, a;
     unsigned int twin;
@@ -82,6 +83,19 @@ static void Draw_EnqueueBuffer(int vertices, int indices) {
     n_indices += indices;
 }
 
+// Perspective-correct texturing needs the depth of every vertex; a polygon
+// missing any is drawn affine, like the hardware does, with w = 1.
+static void PolygonSettleDepth(Vertex* v, int n) {
+    for (int i = 0; i < n; i++) {
+        if (v[i].w <= 0.0f) {
+            for (i = 0; i < n; i++) {
+                v[i].w = 1.0f;
+            }
+            return;
+        }
+    }
+}
+
 // real hardware use XY coords as signed 11-bit
 static short s11(short v) { return (short)(((v & 0x7FF) ^ 1024) - 1024); }
 
@@ -90,9 +104,10 @@ static int writePacket(Vertex* v, int code, int n, u_long* packet, u16* pOut) {
     if (!n) {
         return 0;
     }
-    if (!Psyz_PgxpLookup((unsigned int)*packet, &v->x, &v->y)) {
+    if (!Psyz_PgxpLookup((unsigned int)*packet, &v->x, &v->y, &v->w)) {
         v->x = s11(((short*)packet)[0]);
         v->y = s11(((short*)packet)[1]);
+        v->w = 0.0f; // unknown, see PolygonSettleDepth
     }
     packet++;
     n--;

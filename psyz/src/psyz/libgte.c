@@ -1854,6 +1854,7 @@ typedef struct {
     unsigned int sxy;
     unsigned int frame;
     float x, y;
+    float w; // view-space depth, for perspective-correct texturing
 } PgxpSlot;
 
 static PgxpSlot pgxp_slots[PGXP_SLOTS];
@@ -1869,7 +1870,7 @@ static PgxpSlot* PgxpProbe(unsigned int sxy, int i) {
     return &pgxp_slots[(hash + (unsigned int)i) & (PGXP_SLOTS - 1)];
 }
 
-static void PgxpStore(unsigned int sxy, float x, float y) {
+static void PgxpStore(unsigned int sxy, float x, float y, float w) {
     PgxpSlot* slot = NULL;
     for (int i = 0; i < PGXP_PROBES; i++) {
         PgxpSlot* s = PgxpProbe(sxy, i);
@@ -1888,9 +1889,10 @@ static void PgxpStore(unsigned int sxy, float x, float y) {
     slot->frame = pgxp_frame;
     slot->x = x;
     slot->y = y;
+    slot->w = w;
 }
 
-int Psyz_PgxpLookup(unsigned int sxy, float* x, float* y) {
+int Psyz_PgxpLookup(unsigned int sxy, float* x, float* y, float* w) {
     if (!pgxp_enabled) {
         return 0;
     }
@@ -1899,6 +1901,7 @@ int Psyz_PgxpLookup(unsigned int sxy, float* x, float* y) {
         if (s->sxy == sxy && PgxpLive(s)) {
             *x = s->x;
             *y = s->y;
+            *w = s->w;
             return 1;
         }
     }
@@ -1933,7 +1936,7 @@ static void PgxpRecord(int vx, int vy, int vz, int sx, int sy) {
     if (px < sx - 1.0 || px > sx + 1.0 || py < sy - 1.0 || py > sy + 1.0) {
         return; // saturated
     }
-    PgxpStore(SXY(sx, sy), (float)px, (float)py);
+    PgxpStore(SXY(sx, sy), (float)px, (float)py, (float)z);
 }
 
 // Perspective transformation of one vertex into caller locals.

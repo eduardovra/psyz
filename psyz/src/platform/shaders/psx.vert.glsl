@@ -1,6 +1,6 @@
 #version 450
 
-layout(location = 0) in vec2 pos;   // SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2
+layout(location = 0) in vec3 pos;   // SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3
 layout(location = 1) in uvec4 tex;  // SDL_GPU_VERTEXELEMENTFORMAT_USHORT4
 layout(location = 2) in vec4 color; // SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM
 layout(location = 3) in uvec4 twin; // SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4
@@ -29,7 +29,9 @@ void main() {
     float y = ((pos.y + drawOffset.y + shift.y) / (512.0 / 2.0)) - 1.0;
     // SDL_GPU NDC y=-1 is the bottom while texture row 0 is the top; negate Y
     // so VRAM row 0 lands on texture row 0, like the GL FBO convention.
-    gl_Position = vec4(x, -y, 0.0, 1.0);
+    // a PGXP polygon's depth makes the GPU interpolate UVs with perspective
+    float w = (tex.w & 0x2000u) != 0u ? pos.z : 1.0;
+    gl_Position = vec4(x * w, -y * w, 0.0, w);
     // gouraud colors
     vertexColor = color;
     // select the right texture coords based on the tpage
