@@ -36,6 +36,7 @@ typedef int dbg_socket_t;
 #define STB_IMAGE_WRITE_STATIC
 #define STBI_WRITE_NO_STDIO
 #include "stb_image_write.h"
+#include "../draw.h"
 
 #undef open
 #undef close
@@ -59,6 +60,7 @@ typedef enum {
     DBG_CMD_STATS,
     DBG_CMD_SCREENSHOT,
     DBG_CMD_VRAM,
+    DBG_CMD_VRAM_RAW,
     DBG_CMD_CONFIG_GET,
     DBG_CMD_CONFIG_SET,
     DBG_CMD_INPUT_QUEUE,
@@ -449,6 +451,18 @@ static void CmdCapture(DbgCommand* cmd, unsigned char* (*alloc)(int*, int*)) {
     cmd->ok = cmd->frame_pixels != NULL;
 }
 
+// VRAM as the game sees it: 16-bit little-endian pixels, mask bit included
+static unsigned char* AllocVramRaw(int* w, int* h) {
+    RECT rect = {0, 0, 1024, 512};
+    unsigned char* pixels = malloc(1024 * 512 * 2);
+    if (pixels) {
+        Draw_StoreImage(&rect, (u_long*)pixels);
+    }
+    *w = rect.w;
+    *h = rect.h;
+    return pixels;
+}
+
 static void FormatConfigJson(char* out, int out_len) {
     PsyzSize disp = Psyz_VideoGetDisplaySize();
     snprintf(
@@ -539,6 +553,9 @@ static void DbgDispatchCommand(DbgCommand* cmd) {
         break;
     case DBG_CMD_VRAM:
         CmdCapture(cmd, Psyz_VideoAllocVramDump);
+        break;
+    case DBG_CMD_VRAM_RAW:
+        CmdCapture(cmd, AllocVramRaw);
         break;
     case DBG_CMD_CONFIG_GET:
         CmdConfigGet(cmd);
@@ -700,6 +717,21 @@ static void EpVram(const HttpRequest* hr, dbg_socket_t sock) {
     CapturePng(DBG_CMD_VRAM, sock);
 }
 
+static void EpVramRaw(const HttpRequest* hr, dbg_socket_t sock) {
+    (void)hr;
+    DbgCommand cmd = {.kind = DBG_CMD_VRAM_RAW};
+    if (ExecOrTimeout(&cmd, sock) != 0) {
+        return;
+    }
+    if (!cmd.ok) {
+        RespondError(sock, 503, "vram capture unavailable");
+        return;
+    }
+    RespondRaw(sock, 200, "application/octet-stream", cmd.frame_pixels,
+               cmd.frame_w * cmd.frame_h * 2);
+    free(cmd.frame_pixels);
+}
+
 static void EpConfigGet(const HttpRequest* hr, dbg_socket_t sock) {
     (void)hr;
     DbgCommand cmd = {.kind = DBG_CMD_CONFIG_GET};
@@ -821,6 +853,9 @@ static const DbgRoute g_routes[] = {
      {NULL, NULL, NULL}},
     {"/vram",
      {EpVram, "dump full VRAM plane as PNG", NULL},
+     {NULL, NULL, NULL}},
+    {"/vram/raw",
+     {EpVramRaw, "dump VRAM as raw 16-bit pixels", NULL},
      {NULL, NULL, NULL}},
     {"/config",
      {EpConfigGet, "read video config", NULL},
