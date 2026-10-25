@@ -140,6 +140,18 @@ PsyzFilter2DMode Psyz_VideoGetFilter2DMode(void);
 int Psyz_VideoSetFilter2DMode(PsyzFilter2DMode mode);
 
 /**
+ * @brief Replace textures with the images of a DuckStation texture-page pack
+ *
+ * Reads the names of the pack's "texpage-*.png" images and draws one wherever
+ * VRAM holds the texels and palette it was dumped from, loading it on first
+ * use. Only the SDL_GPU backend replaces textures.
+ *
+ * @param dir the pack's "replacements" directory, or NULL to stop
+ * @return the number of images found, or -1 if dir cannot be read
+ */
+int Psyz_VideoSetTextureReplacementDir(const char* dir);
+
+/**
  * @brief Get the current aspect mode
  *
  * @return current aspect mode

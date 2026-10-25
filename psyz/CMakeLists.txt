@@ -357,6 +357,7 @@ endif()
 
 if(NOT PSP AND NOT EMSCRIPTEN AND PSYZ_RENDERER STREQUAL "sdl3_gpu")
     list(APPEND PSYZ_SOURCES src/platform/sdl3_software.c)
+    list(APPEND PSYZ_SOURCES src/platform/texreplace.c)
 endif()
 
 add_library(psyz STATIC ${PSYZ_SOURCES})

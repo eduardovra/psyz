@@ -79,6 +79,7 @@ static SDL_GPUTransferBuffer* tex_download_transfer = NULL;
 static SDL_GPUGraphicsPipeline* pipe_tri[BLEND_COUNT];
 static SDL_GPUGraphicsPipeline* pipe_clear = NULL;
 static SDL_GPUCommandBuffer* pending_cmd = NULL;
+static SDL_GPUTexture* hd_atlas = NULL; // texture replacement images
 
 static Posi display_area = {0, 0};
 static Posi display_size = {256, 240};
@@ -222,6 +223,10 @@ static SDL_GPUGraphicsPipeline* CreatePsxPipeline(
          .buffer_slot = 0,
          .format = SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4,
          .offset = offsetof(Vertex, uvbox)},
+        {.location = 5,
+         .buffer_slot = 0,
+         .format = SDL_GPU_VERTEXELEMENTFORMAT_USHORT4,
+         .offset = offsetof(Vertex, hdrect)},
     };
     // the shader outputs alpha 0 on B-F texels and alpha 1 on opaque ones
     static const SDL_GPUColorTargetBlendState blend[BLEND_COUNT] = {
@@ -338,7 +343,75 @@ static SDL_GPUGraphicsPipeline* CreateClearPipeline(
     return pipe;
 }
 
+static void UploadReplacement(int x, int y, int w, int h, const u8* rgba) {
+    if (!hd_atlas) {
+        const SDL_GPUTextureCreateInfo info = {
+            .type = SDL_GPU_TEXTURETYPE_2D,
+            .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+            .usage = SDL_GPU_TEXTUREUSAGE_SAMPLER,
+            .width = TEXREPLACE_ATLAS_SIZE,
+            .height = TEXREPLACE_ATLAS_SIZE,
+            .layer_count_or_depth = 1,
+            .num_levels = 1,
+        };
+        hd_atlas = SDL_CreateGPUTexture(device, &info);
+        if (!hd_atlas) {
+            ERRORF("texture replacement atlas: %s", SDL_GetError());
+            return;
+        }
+    }
+    SDL_GPUCommandBuffer* cmd = AcquireCmd();
+    const SDL_GPUTransferBufferCreateInfo info = {
+        .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+        .size = (Uint32)(w * h * 4),
+    };
+    SDL_GPUTransferBuffer* transfer =
+        SDL_CreateGPUTransferBuffer(device, &info);
+    if (!cmd || !transfer) {
+        return;
+    }
+    void* map = SDL_MapGPUTransferBuffer(device, transfer, false);
+    if (map) {
+        memcpy(map, rgba, (size_t)w * h * 4);
+        SDL_UnmapGPUTransferBuffer(device, transfer);
+        SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(cmd);
+        const SDL_GPUTextureTransferInfo src = {.transfer_buffer = transfer};
+        const SDL_GPUTextureRegion dst = {
+            .texture = hd_atlas,
+            .x = (Uint32)x,
+            .y = (Uint32)y,
+            .w = (Uint32)w,
+            .h = (Uint32)h,
+            .d = 1};
+        SDL_UploadToGPUTexture(copy, &src, &dst, false);
+        SDL_EndGPUCopyPass(copy);
+    }
+    SDL_ReleaseGPUTransferBuffer(device, transfer);
+}
+
+// The replacement image for a textured primitive's texels, if the pack has
+// one, and the texels the primitive reads
+static const TexReplaceImage* FindReplacement(
+    const Vertex* v, int n, u16 tpage, u16 clut, TexelBox* box) {
+    if (cur_twin != TWIN_PACK(0xFF, 0xFF, 0x00, 0x00)) {
+        return NULL;
+    }
+    *box = (TexelBox){255, 255, 0, 0};
+    for (int i = 0; i < n; i++) {
+        box->u0 = SDL_min(box->u0, v[i].u);
+        box->v0 = SDL_min(box->v0, v[i].v);
+        box->u1 = SDL_max(box->u1, v[i].u);
+        box->v1 = SDL_max(box->v1, v[i].v);
+    }
+    // the far edge is one past the last texel drawn
+    box->u1 = SDL_min(box->u1 - (box->u1 > box->u0), 255);
+    box->v1 = SDL_min(box->v1 - (box->v1 > box->v0), 255);
+    return TexReplace_Find(tpage, clut, box->u0, box->v0, box->u1, box->v1);
+}
+
 static bool CreateGpuResources(void) {
+    const TexReplaceBackend replacement_backend = {.upload = UploadReplacement};
+    TexReplace_SetBackend(&replacement_backend);
     const SDL_GPUTextureCreateInfo render_info = {
         .type = SDL_GPU_TEXTURETYPE_2D,
         .format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
@@ -416,7 +489,7 @@ static bool CreateGpuResources(void) {
     SDL_GPUShader* psx_vs =
         CreateShader(psx_vert, psx_vert_len, SDL_GPU_SHADERSTAGE_VERTEX, 0, 1);
     SDL_GPUShader* psx_fs = CreateShader(
-        psx_frag, psx_frag_len, SDL_GPU_SHADERSTAGE_FRAGMENT, 1, 0);
+        psx_frag, psx_frag_len, SDL_GPU_SHADERSTAGE_FRAGMENT, 2, 0);
     SDL_GPUShader* clear_vs = CreateShader(
         clear_vert, clear_vert_len, SDL_GPU_SHADERSTAGE_VERTEX, 0, 0);
     SDL_GPUShader* clear_fs = CreateShader(
@@ -887,6 +960,11 @@ static void QuitPlatform(void) {
             SDL_ReleaseGPUTexture(device, vram_sample);
             vram_sample = NULL;
         }
+        if (hd_atlas) {
+            SDL_ReleaseGPUTexture(device, hd_atlas);
+            hd_atlas = NULL;
+            TexReplace_AtlasLost();
+        }
         if (scaled_vram_render) {
             SDL_ReleaseGPUTexture(device, scaled_vram_render);
             scaled_vram_render = NULL;
@@ -1235,7 +1313,14 @@ int Draw_PushPrim(u_long* packets, int max_len) {
                 len++;
             }
 
-            if (!isTextured) {
+            const TexReplaceImage* replacement = NULL;
+            TexelBox box;
+            if (isTextured) {
+                // only page, depth and blending; the rest are no flags
+                tpage &= 0x1FF;
+                replacement =
+                    FindReplacement(vertex_cur, nVertices, tpage, clut, &box);
+            } else {
                 clut = -1;
                 tpage = cur_tpage | TPAGE_NOTEXTURE;
             }
@@ -1243,9 +1328,11 @@ int Draw_PushPrim(u_long* packets, int max_len) {
             if (CanPolyDither(isGouraud, isTextured, isShadeTex)) {
                 tpage |= TPAGE_DITHER;
             }
-            if (isTextured && nVertices == 4 && CanFilter2D() &&
-                !IsProjectedQuad(vertex_cur) &&
-                IsScreenAlignedQuad(vertex_cur)) {
+            if (replacement) {
+                SetReplacement(vertex_cur, nVertices, replacement, box, &tpage);
+            } else if (isTextured && nVertices == 4 && CanFilter2D() &&
+                       !IsProjectedQuad(vertex_cur) &&
+                       IsScreenAlignedQuad(vertex_cur)) {
                 SetFilter2D(vertex_cur, &tpage);
             }
             if (!isGouraud || !isShadeTex) {
@@ -1435,7 +1522,13 @@ int Draw_PushPrim(u_long* packets, int max_len) {
         }
         VRGBA(vertex_cur[1]) = VRGBA(vertex_cur[2]) = VRGBA(vertex_cur[3]) =
             VRGBA(vertex_cur[0]);
-        if (isTextured && CanFilter2D()) {
+        TexelBox box;
+        const TexReplaceImage* replacement =
+            isTextured ? FindReplacement(vertex_cur, 4, tpage, clut, &box)
+                       : NULL;
+        if (replacement) {
+            SetReplacement(vertex_cur, 4, replacement, box, &tpage);
+        } else if (isTextured && CanFilter2D()) {
             SetFilter2D(vertex_cur, &tpage);
         }
         index_cur[0] = n_vertices + 0;
@@ -1531,6 +1624,8 @@ void Draw_ClearImage(PS1_RECT* rect, u_char r, u_char g, u_char b) {
     SDL_EndGPURenderPass(pass);
     MarkVramDirty((SDL_Rect){rect->x, rect->y, rect->w, rect->h});
     SyncNativeVramToScaled(rect->x, rect->y, rect->w, rect->h);
+    TexReplace_ClearImage(rect->x, rect->y, rect->w, rect->h,
+                          (u16)((r >> 3) | (g >> 3) << 5 | (b >> 3) << 10));
 }
 
 void Draw_LoadImage(PS1_RECT* rect, u_long* p) {
@@ -1554,6 +1649,7 @@ void Draw_LoadImage(PS1_RECT* rect, u_long* p) {
     const u16* src = (const u16*)p;
     const int x = WrapVramCoord(rect->x, VRAM_W);
     const int y = WrapVramCoord(rect->y, VRAM_H);
+    TexReplace_LoadImage(x, y, rect->w, rect->h, src);
     for (int src_y = 0, dst_y = y; src_y < rect->h; dst_y = 0) {
         const int chunk_h = SDL_min(rect->h - src_y, VRAM_H - dst_y);
         for (int src_x = 0, dst_x = x; src_x < rect->w; dst_x = 0) {
@@ -1689,6 +1785,7 @@ void Draw_MoveImage(PS1_RECT* rect, unsigned int x, unsigned int y) {
     SDL_EndGPUCopyPass(copy);
     MarkVramDirty((SDL_Rect){dst_x, dst_y, copy_w, copy_h});
     SyncNativeVramToScaled(dst_x, dst_y, copy_w, copy_h);
+    TexReplace_MoveImage(src_x, src_y, copy_w, copy_h, dst_x, dst_y);
 }
 
 void Draw_ResetBuffer(void) {
@@ -1770,9 +1867,11 @@ void Draw_FlushBuffer(void) {
     SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
     const SDL_GPUBufferBinding ib = {.buffer = ibuf};
     SDL_BindGPUIndexBuffer(pass, &ib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
-    const SDL_GPUTextureSamplerBinding sampler_binding = {
-        .texture = vram_sample, .sampler = vram_sampler};
-    SDL_BindGPUFragmentSamplers(pass, 0, &sampler_binding, 1);
+    const SDL_GPUTextureSamplerBinding sampler_bindings[] = {
+        {.texture = vram_sample, .sampler = vram_sampler},
+        {.texture = hd_atlas ? hd_atlas : vram_sample, .sampler = vram_sampler},
+    };
+    SDL_BindGPUFragmentSamplers(pass, 0, sampler_bindings, 2);
     const float offset_ubo[4] = {
         (float)draw_offset.x, (float)draw_offset.y,
         0.5f / (render_scale * grid_scale_x), 0.5f / render_scale};
@@ -1817,5 +1916,8 @@ void Draw_FlushBuffer(void) {
         MarkVramDirty(scissor_rect);
     }
     SyncScaledVramToNative();
+    TexReplace_Rendered(
+        scissor_rect.x, scissor_rect.y, scissor_rect.w, scissor_rect.h);
+    TexReplace_Flushed();
     Draw_ResetBuffer();
 }

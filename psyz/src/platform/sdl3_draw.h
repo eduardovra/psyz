@@ -1,6 +1,8 @@
 #ifndef SDL3_DRAW_H
 #define SDL3_DRAW_H
 
+#include "texreplace.h"
+
 static unsigned draw_grid_source_width = 1;
 static unsigned draw_grid_target_width = 1;
 
@@ -29,7 +31,8 @@ typedef struct {
     unsigned short u, v, c, t;
     unsigned char r, g, b, a;
     unsigned int twin;
-    unsigned int uvbox; // texels the 2D filter may read, see SetFilter2D
+    unsigned int uvbox;       // texels the 2D filter may read, see SetFilter2D
+    unsigned short hdrect[4]; // atlas x, y, w, h of a TPAGE_HD image
 } Vertex;
 
 // ===== SDL3 reserved TPAGE flags, invalid on real hardware =====
@@ -37,6 +40,7 @@ typedef struct {
 #define TPAGE_DITHER 0x4000    // flag a dithered primitive
 #define TPAGE_POLYGON 0x2000   // flag a polygon to sample at PS1 integer coords
 #define TPAGE_FILTER 0x1000    // flag a 2D primitive for PSYZ_FILTER2D_XBR
+#define TPAGE_HD 0x0800        // flag a primitive drawn from a replacement
 
 #define VRGBA(p) (*(unsigned int*)(&((p).r)))
 #define SET_TC(p, tpage, clut)                                                 \
@@ -118,6 +122,30 @@ static void SetFilter2D(Vertex* v, u16* tpage) {
         v[i].uvbox = TWIN_PACK(u0, v0, u1, v1);
     }
     *tpage |= TPAGE_FILTER;
+}
+
+typedef struct {
+    int u0, v0, u1, v1; // inclusive
+} TexelBox;
+
+// Draws a primitive from the part of its replacement image that stands for
+// the texels it reads, so filtering never blends in a neighbouring sprite.
+static void SetReplacement(
+    Vertex* v, int n, const TexReplaceImage* image, TexelBox box, u16* tpage) {
+    const float sx = (float)image->atlas_w / (image->u1 - image->u0 + 1);
+    const float sy = (float)image->atlas_h / (image->v1 - image->v0 + 1);
+    const int x0 = (int)((box.u0 - image->u0) * sx + 0.5f);
+    const int y0 = (int)((box.v0 - image->v0) * sy + 0.5f);
+    const int x1 = (int)((box.u1 + 1 - image->u0) * sx + 0.5f);
+    const int y1 = (int)((box.v1 + 1 - image->v0) * sy + 0.5f);
+    for (int i = 0; i < n; i++) {
+        v[i].uvbox = TWIN_PACK(box.u0, box.v0, box.u1, box.v1);
+        v[i].hdrect[0] = (unsigned short)(image->atlas_x + x0);
+        v[i].hdrect[1] = (unsigned short)(image->atlas_y + y0);
+        v[i].hdrect[2] = (unsigned short)SDL_max(x1 - x0, 1);
+        v[i].hdrect[3] = (unsigned short)SDL_max(y1 - y0, 1);
+    }
+    *tpage |= TPAGE_HD;
 }
 
 // real hardware use XY coords as signed 11-bit

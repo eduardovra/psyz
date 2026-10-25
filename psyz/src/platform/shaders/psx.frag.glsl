@@ -14,9 +14,11 @@ layout(location = 10) flat in ivec2 pageBase;
 layout(location = 11) flat in uvec4 texWindow;
 layout(location = 12) in vec2 filterUV;
 layout(location = 13) flat in uvec4 filterBox;
-layout(location = 14) flat in uint filter2d;
+layout(location = 14) flat in uint sampleMode;
+layout(location = 15) flat in uvec4 hdRect;
 
 layout(set = 2, binding = 0) uniform sampler2D texVram;
+layout(set = 2, binding = 1) uniform sampler2D hdAtlas;
 
 uvec2 resolveTexel() {
     vec2 uv = rawUV + 1.0 / 512.0;
@@ -167,17 +169,54 @@ vec3 applyDither(vec3 c) {
     return c5 / 31.0;
 }
 
+// the atlas stores alpha 0 transparent, 128 semi-transparent, 255 opaque
+vec4 hdFetch(ivec2 p, ivec2 size) {
+    p = clamp(p, ivec2(0), size - 1);
+    return texelFetch(hdAtlas, ivec2(hdRect.xy) + p, 0);
+}
+
+vec4 hdPremultiplied(vec4 c) {
+    float covered = c.a > 0.25 ? 1.0 : 0.0;
+    return vec4(c.rgb * covered, covered);
+}
+
+// The replacement image under this fragment, which stands for the page
+// texels in filterBox. Bilinear, so its edges stay smooth at any scale; the
+// semi-transparency comes from the nearest pixel.
+vec3 hdTexel(out float coverage, out bool semi) {
+    vec2 texels = vec2(filterBox.zw - filterBox.xy + 1u);
+    ivec2 size = ivec2(hdRect.zw);
+    vec2 pos = (filterUV - vec2(filterBox.xy)) / texels * vec2(size) - 0.5;
+    ivec2 p = ivec2(floor(pos));
+    vec2 f = pos - floor(pos);
+    vec4 top = mix(hdPremultiplied(hdFetch(p, size)),
+                   hdPremultiplied(hdFetch(p + ivec2(1, 0), size)), f.x);
+    vec4 bottom = mix(hdPremultiplied(hdFetch(p + ivec2(0, 1), size)),
+                      hdPremultiplied(hdFetch(p + ivec2(1, 1), size)), f.x);
+    vec4 sum = mix(top, bottom, f.y);
+    float nearest = hdFetch(ivec2(floor(pos + 0.5)), size).a;
+    coverage = sum.a;
+    semi = nearest > 0.25 && nearest < 0.75;
+    return sum.a > 0.0 ? sum.rgb / sum.a : vec3(0.0);
+}
+
 void main() {
     vec4 texColor;
+    bool transparent;
+    float coverage = 1.0;
     if (textureMode == 0u) { // untextured
         texColor = vec4(1, 1, 1, 2);
-    } else if (filter2d != 0u) {
-        texColor = xbrTexel();
+        transparent = false;
+    } else if (sampleMode == 2u) {
+        bool semi;
+        vec3 rgb = hdTexel(coverage, semi);
+        transparent = coverage < 1.0 / 255.0;
+        texColor = vec4(rgb, semi ? 1.0 : 0.0);
     } else {
-        texColor = fetchTexel(resolveTexel());
+        texColor = sampleMode == 1u ? xbrTexel() : fetchTexel(resolveTexel());
+        transparent = texColor == vec4(0, 0, 0, 0);
     }
-    // check for full transparency
-    if (texColor == vec4(0, 0, 0, 0)) {
+    if (transparent) {
         FragColor = vec4(0);
         return;
     }
@@ -190,6 +229,10 @@ void main() {
     if (textureMode == 0u) {
         // untextured: PS1 uses color directly, no modulation
         modColor = texColor.rgb * vertexColor.rgb;
+    } else if (sampleMode == 2u) {
+        // the same modulation without cutting the image to 5 bits a channel
+        vec3 col8 = min(floor(vertexColor.rgb * 127.5 + 0.5), vec3(255.0));
+        modColor = min(texColor.rgb * 31.0 * col8 / 16.0, vec3(255.0)) / 255.0;
     } else {
         vec3 tex5 = floor(texColor.rgb * 31.0 + 0.5);
         vec3 col8 = min(floor(vertexColor.rgb * 127.5 + 0.5), vec3(255.0));
@@ -213,4 +256,5 @@ void main() {
     } else {
         FragColor = vec4(modColor, 1.0); // full opacity
     }
+    FragColor *= coverage; // a replacement's smooth edges
 }
