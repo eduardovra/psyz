@@ -579,7 +579,8 @@ ZTEST(gpu, move_image_internal_res) {
     u_short readback[16 * 16];
     RECT rectStore = {704, 320, 16, 16};
     zskip_targets("psp;ps1");
-    zassert_s32_eq(-1, Psyz_VideoSetInternalResolution(0));
+    zassert_s32_eq(
+        -1, Psyz_VideoSetInternalResolution(PSYZ_INTERNAL_RES_MAX + 1));
     zassert_s32_eq(0, Psyz_VideoSetInternalResolution(2));
     zassert_s32_eq(2, Psyz_VideoGetInternalResolution());
 
@@ -776,6 +777,38 @@ ZTEST(gpu, clear_screen_draw_offset_bugfix) {
     VSync(0);
 
     ASSERT_FRAME("clear_screen_draw_offset_bugfix", 0, 1.0f);
+}
+
+ZTEST(gpu, negative_draw_offset) {
+    zskip_targets("ppsspp"); // broken on ppsspp v1.20.4
+    DRAWENV draw;
+    ClearImage(&cdb->draw.clip, 60, 120, 120);
+    DrawSync(0);
+
+    draw = cdb->draw;
+    draw.ofs[0] = -32;
+    draw.ofs[1] = -48;
+    PutDrawEnv(&draw);
+
+    SetTile(&cdb->tile[0]);
+    setRGB0(&cdb->tile[0], 255, 0, 0);
+    setXY0(&cdb->tile[0], 64, 80);
+    setWH(&cdb->tile[0], 64, 64);
+
+    // left and top edges sit before the origin and get clipped by draw.ofs
+    SetPolyF4(&cdb->f4[0]);
+    setRGB0(&cdb->f4[0], 0, 255, 0);
+    setXYWH(&cdb->f4[0], 16, 32, 64, 48);
+
+    ClearOTag(cdb->ot, OTSIZE);
+    AddPrim(cdb->ot, &cdb->tile[0]);
+    AddPrim(cdb->ot, &cdb->f4[0]);
+
+    DrawOTag(cdb->ot);
+    DrawSync(0);
+    VSync(0);
+    PutDispEnv(&cdb->disp);
+    ASSERT_FRAME("negative_draw_offset", 0, 1.0f);
 }
 
 // TODO: test is actually failing
@@ -1335,6 +1368,62 @@ ZTEST(gpu, marge_prim) {
     Present("marge_prim");
 }
 
+ZTEST(gpu, screen_copy_after_draw_env_sees_earlier_prims) {
+    zskip_targets("ppsspp"); // subpixel vertex emulation broken
+    u_short tpage, clut;
+    DR_ENV drEnv;
+    POLY_FT4* screenCopy = &cdb->ft4[0];
+    POLY_FT4* sprite = &cdb->ft4[1];
+    TILE* hud = &cdb->tile[0];
+    TILE* background = &cdb->tile[1];
+    TILE* hole = &cdb->tile[2];
+    if (LoadTim(img_4bpp, &tpage, &clut)) {
+        return;
+    }
+
+    SetTile(background);
+    setXY0(background, 32, 32);
+    setWH(background, 192, 176);
+    setRGB0(background, 40, 90, 160);
+
+    SetTile(hole);
+    setXY0(hole, 112, 96);
+    setWH(hole, 48, 48);
+    setRGB0(hole, 0, 0, 0);
+
+    SetDrawEnv(&drEnv, &cdb->draw);
+
+    SetPolyFT4(sprite);
+    setXYWH(sprite, 80, 72, 64, 64);
+    setRGB0(sprite, 128, 128, 128);
+    setUVWH(sprite, 0, 0, 64, 64);
+    setSemiTrans(sprite, 0);
+    sprite->tpage = tpage;
+    sprite->clut = clut;
+
+    SetTile(hud);
+    setXY0(hud, 24, 184);
+    setWH(hud, 208, 24);
+    setRGB0(hud, 200, 40, 40);
+
+    SetPolyFT4(screenCopy);
+    setXYWH(screenCopy, 16, 16, 224, 208);
+    setRGB0(screenCopy, 128, 128, 128);
+    setUVWH(screenCopy, 16, 16, 224, 208);
+    setSemiTrans(screenCopy, 0);
+    screenCopy->tpage = GetTPage(2, 0, 0, 0);
+    screenCopy->clut = 0;
+
+    ClearOTag(cdb->ot, OTSIZE);
+    AddPrim(cdb->ot, screenCopy);
+    AddPrim(cdb->ot, hud);
+    AddPrim(cdb->ot, sprite);
+    AddPrim(cdb->ot, &drEnv);
+    AddPrim(cdb->ot, hole);
+    AddPrim(cdb->ot, background);
+    Present("screen_copy_after_draw_env_sees_earlier_prims");
+}
+
 enum {
     DR = 47,
     DG = 123,
@@ -1733,6 +1822,15 @@ ZTEST(gpu, vsync_callback_runs_every_frame) {
     vsync_callback_count = 0;
     VSync(0);
     zexpect_s32_eq(0, vsync_callback_count);
+}
+
+ZTEST(gpu, vsync_n_waits_n_vblanks) {
+    int start;
+    VSync(0);
+    start = VSync(-1);
+    VSync(3);
+    // the counter's phase can lose one of the three to rounding
+    zexpect_s32_ge(start + 2, VSync(-1));
 }
 
 static volatile int vsync_order[16];

@@ -913,6 +913,25 @@ ZTEST(spu, AdpcmLoopRepeatJumpsToLoopAddr) {
     }
 }
 
+ZTEST(spu, AdpcmLoopEndWithoutRepeatZeroesEnvx) {
+    unsigned char payload[16];
+    memset(payload, 0x77, sizeof(payload));
+    payload[0] = 0;
+    payload[1] = 0x01;
+    spu_reset_quiet();
+    Psyz_SpuWrite(0x1AA, 0x8000 | 0x4000);
+    Psyz_SpuMemWrite(kSampleAddr, payload, sizeof(payload));
+    setup_voice1(kSampleAddr, 0x0400);
+    Psyz_SpuWrite(0x1A, 0x1fdf);
+    Psyz_SpuWrite(0x18C, 0);
+    Psyz_SpuWrite(0x18E, 0);
+    Psyz_SpuWrite(0x188, 1u << 1);
+    pull_samples_nop(16);
+    zexpect_u16_ne(0, Psyz_SpuRead(0x1C));
+    pull_samples_nop(1024);
+    zexpect_u16_eq(0, Psyz_SpuRead(0x1C));
+}
+
 ZTEST(spu, adsr_attack_linear_step) {
     uint16_t envx[0x40];
     const uint32_t base =
@@ -1493,7 +1512,7 @@ static int expect_mix(const char* name, const short* got, int frames) {
 }
 
 static int check_mix(const char* name) {
-    static short got[kMixFrames * 2];
+    short got[kMixFrames * 2];
     return capture_mix_from_onset(got, kMixFrames) &&
            expect_mix(name, got, kMixFrames);
 }
@@ -1693,7 +1712,7 @@ ZTEST(spumix, mix_adpcm_fuzz_pitch) {
         0x0000, 0x0001, 0x0123, 0x0FFF, 0x1001,
         0x2345, 0x3FFF, 0x4000, 0x5555, 0xFFFF};
     enum { kCount = sizeof(pitch) / sizeof(pitch[0]) };
-    static short got[kCount * kSegmentFrames * 2];
+    short got[kCount * kSegmentFrames * 2];
     int i;
     mix_setup(kAdpcmSilent);
     upload_adpcm_fuzz(kSampleAddr, 150, 0x5EED0001);
@@ -1714,7 +1733,7 @@ ZTEST(spumix, mix_volumes) {
         kCount = kVols * kVols,
         kFrames = 128,
     };
-    static short got[kCount * kFrames * 2];
+    short got[kCount * kFrames * 2];
     int i;
     mix_setup(kAdpcmSquare);
     for (i = 0; i < kCount; i++) {
@@ -1747,7 +1766,7 @@ ZTEST(spumix, mix_adsr) {
          false, true},
     };
     enum { kCount = sizeof(env) / sizeof(env[0]), kFrames = 1024 };
-    static short got[kCount * kFrames * 2];
+    short got[kCount * kFrames * 2];
     int i;
     mix_setup(kAdpcmSquare);
     for (i = 0; i < kCount; i++) {
@@ -1776,7 +1795,7 @@ ZTEST(spumix, mix_adsr) {
 ZTEST(spumix, mix_voices_sum) {
     enum { kBlocks = 80, kFrames = 2048 };
     static const int count[] = {4, 24};
-    static short got[2 * kFrames * 2];
+    short got[2 * kFrames * 2];
     int seg, v;
     mix_setup(kAdpcmSilent);
     for (v = 0; v < 24; v++) {
@@ -1837,7 +1856,7 @@ static void upload_impulse(void) {
 
 ZTEST(spumix, mix_reverb_impulse) {
     enum { kFrames = 1024 };
-    static short got[kFrames * 2];
+    short got[kFrames * 2];
     mix_setup(kAdpcmSilent);
     upload_impulse();
     reverb_start(kReverbDelayLine, 0x3FFF, 0x3FFF);
@@ -1881,7 +1900,7 @@ ZTEST(spumix, mix_reverb_params) {
           {21, 0x011C}}},
     };
     enum { kCount = sizeof(seg) / sizeof(seg[0]), kFrames = 2048 };
-    static short got[kCount * kFrames * 2];
+    short got[kCount * kFrames * 2];
     unsigned short regs[32];
     int i, k;
     mix_setup(kAdpcmSilent);
@@ -1901,7 +1920,7 @@ ZTEST(spumix, mix_reverb_params) {
 
 ZTEST(spumix, mix_four_voices) {
     enum { kFrames = 4096 };
-    static short got[kFrames * 2];
+    short got[kFrames * 2];
     reverb_room_setup(true, false);
     Psyz_SpuMemWrite(kSampleAddr, kAdpcmSine, 64);
     Psyz_SpuMemWrite(kSampleAddr + 0x40, kAdpcmTriangle, 64);
@@ -1977,7 +1996,7 @@ static void reverb_chaos(unsigned short regs[32]) {
 
 ZTEST(spumix, mix_chaos) {
     enum { kSeeds = 3, kBlocks = 64, kFrames = 4096 };
-    static short got[kSeeds * kFrames * 2];
+    short got[kSeeds * kFrames * 2];
     unsigned short regs[32], rev_l, rev_r;
     int seed, v;
     for (seed = 0; seed < kSeeds; seed++) {

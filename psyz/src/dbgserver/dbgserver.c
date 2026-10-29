@@ -85,6 +85,16 @@ typedef struct {
 
     int set_filter2d;
     int filter2d;
+
+    int set_resolution;
+    int resolution_display;
+    int resolution_w, resolution_h;
+
+    int set_anchor;
+    int anchor;
+
+    int set_display;
+    int display_w, display_h;
 } DbgConfigArgs;
 
 typedef struct {
@@ -415,6 +425,12 @@ static const ModeEntry g_filter2d_modes[] = {
     {"off", PSYZ_FILTER2D_OFF},
     {"xbr", PSYZ_FILTER2D_XBR},
 };
+static const ModeEntry g_anchor_modes[] = {
+    {"center", PSYZ_ANCHOR_CENTER},
+    {"left", PSYZ_ANCHOR_LEFT},
+    {"top", PSYZ_ANCHOR_TOP},
+    {"top-left", PSYZ_ANCHOR_TOP_LEFT},
+};
 
 static const char* ModeName(const ModeEntry* table, int count, int value) {
     for (int i = 0; i < count; i++) {
@@ -465,11 +481,14 @@ static unsigned char* AllocVramRaw(int* w, int* h) {
 
 static void FormatConfigJson(char* out, int out_len) {
     PsyzSize disp = Psyz_VideoGetDisplaySize();
+    PsyzRect screen = Psyz_VideoGetDrawArea();
     snprintf(
         out, out_len,
         "{\"vsync\":\"%s\",\"dither\":\"%s\",\"aspect\":\"%s\",\n"
         "\"pgxp\":\"%s\",\"filter2d\":\"%s\",\"internal_resolution\":%u,\n"
-        "\"display_size\":{\"w\":%d,\"h\":%d}}\n",
+        "\"display_size\":{\"w\":%d,\"h\":%d},\n"
+        "\"anchor\":\"%s\",\n"
+        "\"draw_area\":{\"x\":%d,\"y\":%d,\"w\":%u,\"h\":%u}}\n",
         ModeName(g_vsync_modes, LEN(g_vsync_modes), Psyz_VideoGetVsyncMode()),
         ModeName(
             g_dither_modes, LEN(g_dither_modes), Psyz_VideoGetDitheringMode()),
@@ -478,7 +497,10 @@ static void FormatConfigJson(char* out, int out_len) {
         ModeName(g_pgxp_modes, LEN(g_pgxp_modes), Psyz_GteGetPgxp()),
         ModeName(g_filter2d_modes, LEN(g_filter2d_modes),
                  Psyz_VideoGetFilter2DMode()),
-        Psyz_VideoGetInternalResolution(), disp.w, disp.h);
+        Psyz_VideoGetInternalResolution(), disp.w, disp.h,
+        ModeName(g_anchor_modes, LEN(g_anchor_modes), Psyz_VideoGetAnchor()),
+        screen.sx, screen.sy, Psyz_GetRectWidth(screen),
+        Psyz_GetRectHeight(screen));
 }
 
 static void CmdConfigGet(DbgCommand* cmd) {
@@ -512,6 +534,23 @@ static void CmdConfigSet(DbgCommand* cmd) {
     }
     if (a->set_filter2d &&
         Psyz_VideoSetFilter2DMode((PsyzFilter2DMode)a->filter2d) != 0) {
+        cmd->ok = 0;
+        return;
+    }
+    if (a->set_display && Psyz_VideoSimulateDisplay(
+                              (PsyzSize){a->display_w, a->display_h}) != 0) {
+        cmd->ok = 0;
+        return;
+    }
+    if (a->set_anchor && Psyz_VideoSetAnchor((PsyzAnchor)a->anchor) != 0) {
+        cmd->ok = 0;
+        return;
+    }
+    if (a->set_resolution &&
+        Psyz_VideoSetResolution(
+            a->resolution_display
+                ? Psyz_VideoGetDisplaySize()
+                : (PsyzSize){a->resolution_w, a->resolution_h}) != 0) {
         cmd->ok = 0;
         return;
     }
@@ -759,6 +798,8 @@ static void EpConfigSet(const HttpRequest* hr, dbg_socket_t sock) {
         {"pgxp", g_pgxp_modes, LEN(g_pgxp_modes), &a->set_pgxp, &a->pgxp},
         {"filter2d", g_filter2d_modes, LEN(g_filter2d_modes), &a->set_filter2d,
          &a->filter2d},
+        {"anchor", g_anchor_modes, LEN(g_anchor_modes), &a->set_anchor,
+         &a->anchor},
     };
 
     char val[32];
@@ -779,6 +820,27 @@ static void EpConfigSet(const HttpRequest* hr, dbg_socket_t sock) {
     if (QueryGet(hr->query, "internal_resolution", val, sizeof(val)) == 0) {
         cmd.args.config.set_internal_resolution = 1;
         cmd.args.config.internal_resolution = (unsigned)strtoul(val, NULL, 10);
+    }
+    if (QueryGet(hr->query, "resolution", val, sizeof(val)) == 0) {
+        a->set_resolution = 1;
+        if (!strcmp(val, "ps1")) {
+            a->resolution_w = a->resolution_h = 0;
+        } else if (!strcmp(val, "display")) {
+            a->resolution_display = 1;
+        } else if (
+            sscanf(val, "%dx%d", &a->resolution_w, &a->resolution_h) != 2) {
+            RespondError(sock, 400, "invalid resolution value");
+            return;
+        }
+    }
+    if (QueryGet(hr->query, "display", val, sizeof(val)) == 0) {
+        a->set_display = 1;
+        if (!strcmp(val, "off")) {
+            a->display_w = a->display_h = 0;
+        } else if (sscanf(val, "%dx%d", &a->display_w, &a->display_h) != 2) {
+            RespondError(sock, 400, "invalid display value");
+            return;
+        }
     }
     if (ExecOrTimeout(&cmd, sock) != 0) {
         return;
@@ -860,7 +922,8 @@ static const DbgRoute g_routes[] = {
     {"/config",
      {EpConfigGet, "read video config", NULL},
      {EpConfigSet, "apply video config",
-      "vsync,dither,aspect,pgxp,filter2d,internal_resolution"}},
+      "vsync,dither,aspect,pgxp,filter2d,internal_resolution,resolution,"
+      "anchor,display"}},
     {"/input",
      {NULL, NULL, NULL},
      {EpInputQueue, "queue scripted input", "port,buttons,frames"}},

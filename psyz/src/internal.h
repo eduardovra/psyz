@@ -31,6 +31,9 @@ int Psyz_PgxpLookup(unsigned int sxy, float* x, float* y, float* w);
 // Ages the PGXP positions; VSync calls it once per frame.
 void Psyz_PgxpNextFrame(void);
 
+// how many StoreImage can be queued without a DrawSync(0)
+#define MAX_PENDING_STORES 16
+
 // SDL platform lifecycle code uses this to avoid undoing an explicit game
 // audio pause when the application returns from the background.
 int Psyz_AudioIsPaused(void);
@@ -56,5 +59,10 @@ void Psyz_KernelPoll(void);
 
 // Latch completion of a native DMA transfer through the kernel IRQ dispatcher.
 void Psyz_KernelDmaComplete(int channel);
+
+// FASYNC implementation for memory cards
+int open_card_fd(int fd, const char* devname, int flag);
+void close_card_fd(int fd);
+void raise_card_io_end(int fd);
 
 #endif

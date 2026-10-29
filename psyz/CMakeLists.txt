@@ -217,7 +217,6 @@ set(PSYZ_SOURCES
     ../decomp/src/libc2/rand.c
     src/psyz/libsnd.c
     src/psyz/libsn.c
-    src/psyz/libpress.c
     ../decomp/src/libpress/libpress.c
     src/psyz/mdec.c
     src/psyz/vlc.c

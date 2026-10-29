@@ -183,18 +183,7 @@ long my_erase(char* path) {
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
-
-// The BIOS reports FASYNC memory-card I/O done with a SwCARD event; host I/O
-// is synchronous, so the event is raised as soon as read/write returns.
-static bool async_fds[256];
-
-static void complete_async(int fd, bool ok) {
-    if (fd >= 0 && fd < LEN(async_fds) && async_fds[fd]) {
-        Psyz_KernelRaise(SwCARD, ok ? EvSpIOE : EvSpERROR);
-    }
-}
-
-static int open_host(const char* devname, int flag) {
+int psyz_open(const char* devname, int flag) {
     int oflag = O_RDONLY;
     if (flag & FCREAT) {
         // as on Windows: creating implies writing
@@ -241,7 +230,8 @@ static int open_host(const char* devname, int flag) {
     char path[0x100];
     Psyz_AdjustPath(path, devname, sizeof(path));
     if (oflag & O_CREAT) {
-        return open(path, oflag | O_TRUNC, 0644); // a new file, as creat()
+        return open_card_fd(
+            open(path, oflag | O_TRUNC, 0644), devname, flag); // as creat()
     } else {
         struct stat st;
         if (stat(path, &st) != 0) {
@@ -258,28 +248,24 @@ static int open_host(const char* devname, int flag) {
             }
             return -1;
         }
-        return open(path, oflag);
+        return open_card_fd(open(path, oflag), devname, flag);
     }
 }
-int psyz_open(const char* devname, int flag) {
-    int fd = open_host(devname, flag);
-    if (fd >= 0 && fd < LEN(async_fds)) {
-        async_fds[fd] = (flag & FASYNC) != 0;
-    }
-    return fd;
+int psyz_close(int fd) {
+    close_card_fd(fd);
+    return (int)close((int)fd);
 }
-int psyz_close(int fd) { return (int)close((int)fd); }
 unsigned long psyz_lseek(int fd, unsigned int offset, int flag) {
     return lseek(fd, (off_t)offset, flag);
 }
 long psyz_read(long fd, void* buf, long n) {
     long ret = (long)read((int)fd, buf, (size_t)n);
-    complete_async((int)fd, ret == n);
+    raise_card_io_end((int)fd);
     return ret;
 }
 int psyz_write(int fd, char* buf, int n) {
     int ret = (int)write(fd, buf, (size_t)n);
-    complete_async(fd, ret == n);
+    raise_card_io_end(fd);
     return ret;
 }
 long psyz_ioctl(int fd, int com, int arg) { return ioctl(fd, com, arg); }

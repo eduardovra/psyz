@@ -5,9 +5,11 @@ layout(location = 1) in vec4 color; // SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM
 
 layout(location = 0) out vec4 vertexColor;
 
+layout(set = 1, binding = 0) uniform UBO { vec2 targetSize; };
+
 void main() {
-    float x = (pos.x / (1024.0 / 2.0)) - 1.0;
-    float y = (pos.y / (512.0 / 2.0)) - 1.0;
+    float x = (pos.x / (targetSize.x / 2.0)) - 1.0;
+    float y = (pos.y / (targetSize.y / 2.0)) - 1.0;
     gl_Position = vec4(x, -y, 0.0, 1.0);
     vertexColor = color;
 }

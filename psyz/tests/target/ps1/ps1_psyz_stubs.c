@@ -21,7 +21,7 @@ static void psx_mdec_write(unsigned offset, uint32_t value) {
 static struct Ps1MdecTables {
     uint8_t quant[128], scale[128];
 } mdec_tables, mdec_transfer_tables;
-static uint32_t mdec_input[UINT16_MAX];
+static const uint32_t* mdec_input;
 static size_t mdec_input_words, mdec_sent;
 static uint32_t mdec_command;
 static int mdec_started, mdec_error;
@@ -55,8 +55,7 @@ int Psyz_MdecCommand(uint32_t command, const void* data, size_t words) {
         return 0;
     }
     Psyz_MdecReset();
-    if (words)
-        memcpy(mdec_input, data, words * 4);
+    mdec_input = data;
     mdec_transfer_tables = mdec_tables;
     mdec_input_words = words;
     mdec_command = command;
@@ -154,17 +153,97 @@ int Psyz_MdecRead(void* data, size_t words) {
     return 0;
 }
 
+void Psyz_MdecWrite(unsigned offset, u32 value) {
+    if (offset == 4 && (value & 0x80000000u))
+        Psyz_MdecReset();
+    if (offset == 0) {
+        mdec_command = value;
+        mdec_input_words = mdec_sent = 0;
+        mdec_pixel_pos = mdec_pixel_size = 0;
+        mdec_started = 1;
+        mdec_error = 0;
+    }
+    psx_mdec_write(offset, value);
+}
+
+int Psyz_MdecDmaIn(const void* data, size_t words) {
+    unsigned opcode = mdec_command >> 29;
+    if ((!data && words) || words > UINT16_MAX)
+        return -1;
+    if (opcode == 1) {
+        mdec_input = data;
+        mdec_input_words = words;
+        return 0;
+    }
+    if ((opcode != 2 && opcode != 3) || words > 32)
+        return -1;
+    size_t sent = 0;
+    for (unsigned idle = 0; idle < 0x100000; ++idle) {
+        if (sent < words && !(psx_mdec_read(4) & 0x40000000u)) {
+            uint32_t word;
+            memcpy(&word, (const uint8_t*)data + sent * 4, 4);
+            psx_mdec_write(0, word);
+            ++sent;
+            idle = 0;
+        }
+        if (sent == words && !(psx_mdec_read(4) & 0x20000000u)) {
+            memcpy(opcode == 2 ? mdec_tables.quant : mdec_tables.scale, data,
+                   words * 4);
+            return 0;
+        }
+    }
+    return -1;
+}
+
+int Psyz_MdecDmaOut(void* data, size_t words) {
+    return Psyz_MdecRead(data, words);
+}
+
 int Psyz_VideoSetDitheringMode(PsyzDitherMode mode) {
     (void)mode;
     return 0;
 }
 
 int Psyz_VideoSetInternalResolution(unsigned multiplier) {
-    (void)multiplier;
     return multiplier == 1 ? 0 : -1;
 }
 
 unsigned Psyz_VideoGetInternalResolution(void) { return 1; }
+
+int Psyz_VideoSetResolution(PsyzSize size) {
+    return size.w == 0 && size.h == 0 ? 0 : -1;
+}
+
+int Psyz_VideoSetAnchor(PsyzAnchor anchor) {
+    return anchor == PSYZ_ANCHOR_CENTER ? 0 : -1;
+}
+
+PsyzAnchor Psyz_VideoGetAnchor(void) { return PSYZ_ANCHOR_CENTER; }
+
+PsyzRect Psyz_VideoGetDrawArea(void) {
+    DISPENV disp;
+    PsyzRect r = {0, 0, 0, 0};
+    GetDispEnv(&disp);
+    r.ex = disp.disp.w;
+    r.ey = disp.disp.h;
+    return r;
+}
+
+int Psyz_VideoSimulateDisplay(PsyzSize size) {
+    return size.w || size.h ? -1 : 0;
+}
+
+int Psyz_VideoSetAspectMode(PsyzAspectMode mode) {
+    return mode == PSYZ_ASPECT_DISPLAY ? 0 : -1;
+}
+
+PsyzSize Psyz_VideoGetDisplaySize(void) {
+    PsyzRect r = Psyz_VideoGetDrawArea();
+    PsyzSize s;
+    s.w = Psyz_GetRectWidth(r);
+    s.h = Psyz_GetRectHeight(r);
+    return s;
+}
 
 // pre-calculated version of (c5 * 255 + 15) / 31
 static const unsigned char color_5to8[32] = {
