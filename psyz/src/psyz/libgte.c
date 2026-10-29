@@ -1335,7 +1335,13 @@ void SetFogNearFar(long a, long b, long h) {
     DQA = dqa;
     DQB = ((fogFar << 12) / range) << 12;
 }
-void SetFogFar(long a, long h) { NOT_IMPLEMENTED; }
+void SetFogFar(long a, long h) {
+    int fogFar = a;
+    int screenDist = h;
+
+    DQA = -(fogFar * 64) / screenDist;
+    DQB = 0x1400000;
+}
 
 void Psyz_GteLdRgb(CVECTOR* v) { *(unsigned int*)&RGBC = *(unsigned int*)v; }
 void Psyz_GteStRgb(CVECTOR* v) { *(unsigned int*)v = RGB2; }

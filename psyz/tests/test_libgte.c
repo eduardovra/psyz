@@ -2076,6 +2076,13 @@ ZTEST(gte, setfognear_wraps_dqa_to_16_bits) {
     zexpect_s32_eq(0x1000, DepthCueAt(500));
 }
 
+ZTEST(gte, setfogfar_fades_from_a_fifth_of_far) {
+    SetFogFar(5000, 256);
+    zexpect_s32_eq(0, DepthCueAt(1000));
+    zexpect_s32_eq(3413, DepthCueAt(3000));
+    zexpect_s32_eq(0x1000, DepthCueAt(5000));
+}
+
 static void LoadMac(int x, int y, int z) {
     static SVECTOR v = {0, 0, 0};
     MATRIX m = {{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}}, {x, y, z}};
