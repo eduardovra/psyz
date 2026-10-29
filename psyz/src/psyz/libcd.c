@@ -1010,7 +1010,13 @@ static int CD_command(u_char com, u_char* param, u_char* result, s32 arg3) {
     int total;
     int t;
     int abs_sector;
+    // The drive answers every command; CdControlF just discards the answer,
+    // which still reaches the sync callback.
+    u_char response[8];
 
+    if (!result) {
+        result = response;
+    }
     CD_sync(0, 0);
     switch (com) {
     case CdlNop:
@@ -1046,6 +1052,7 @@ static int CD_command(u_char com, u_char* param, u_char* result, s32 arg3) {
     case CdlReadS:
         if (CD_mode & CdlModeRT) {
             psyz_xa_read();
+            CD_status |= CdlStatRead;
         } else {
             Psyz_AudioLock();
             is_playing = 0;
@@ -1135,8 +1142,7 @@ static int CD_command(u_char com, u_char* param, u_char* result, s32 arg3) {
         result[5] = xa.filter_channel;
         result[6] = 0x00;
         result[7] = 0x00;
-        u_char status_result[8] = {(u_char)CD_status, 0, 0, 0, 0, 0, 0, 0};
-        cache_last_result(status_result, sizeof(status_result), CdlComplete);
+        cache_last_result(result, 8, CdlComplete);
         break;
     }
     case CdlGetlocP:
