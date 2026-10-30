@@ -43,6 +43,12 @@ unsigned short note2pitch(void) {
     semitones = (short)note;
     octave = semitones / 12;
     semitone = semitones - (octave * 12);
+    if (semitone < 0) {
+        // A note over 60 semitones below the tone's center: the PSX reads
+        // past the start of pitch_table, which faults on 64-bit hosts.
+        semitone += 12;
+        octave--;
+    }
     if (step >= 16) {
         step = 15;
     }
@@ -79,6 +85,10 @@ unsigned short note2pitch2(unsigned short note, unsigned short fine) {
     semitones = (short)(octaveBase + (note + 60 - _svm_tn[tone].center));
     octave = semitones / 12;
     semitones = (short)(semitones - octave * 12);
+    if (semitones < 0) {
+        semitones += 12;
+        octave--;
+    }
     noteIndex = semitones * 16;
     pitch = pitch_table[noteIndex + step];
     shift = octave - 5;
