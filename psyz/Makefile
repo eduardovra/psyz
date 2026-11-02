@@ -106,4 +106,4 @@ $(CLANG_FORMAT):
 	@chmod +x $@
 
 format: $(CLANG_FORMAT)
-	find src psxgen tests ../ztest -type f \( -name '*.c' -o -name '*.h' \) -not -name 'stb_image*.h' -not -path '*/build/*' -print0 | xargs -0 -P$$(nproc) -n1 $(CLANG_FORMAT) -i
+	find src psxgen tests ../ztest -type f \( -name '*.c' -o -name '*.h' \) -not -name 'stb_image*.h' -not -name 'xxhash.h' -not -path '*/build/*' -print0 | xargs -0 -P$$(nproc) -n1 $(CLANG_FORMAT) -i
