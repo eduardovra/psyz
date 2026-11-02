@@ -42,3 +42,18 @@ ZTEST(vlc_compat, size_returns_the_previous_sdk_limit) {
     zassert_s32_eq(0xffffff, DecDCTvlcSize(-1));
     zassert_s32_eq(0xffffff, DecDCTvlcSize(0));
 }
+
+ZTEST(vlc_compat, table_decode_matches_sdk_decode) {
+    static DECDCTTAB table;
+    DecDCTvlcBuild(table);
+    for (unsigned i = 0; i < sizeof(vlc_psyq47) / sizeof(*vlc_psyq47); ++i) {
+        const VlcFixture* fixture = &vlc_psyq47[i];
+        memset(output, 0xa5, sizeof(output));
+        memset(expected, 0xa5, sizeof(expected));
+        zassert_s32_eq(
+            0, DecDCTvlc((u_long*)fixture->input, (u_long*)expected));
+        zassert_s32_eq(
+            0, DecDCTvlc2((u_long*)fixture->input, (u_long*)output, table));
+        zassert_u8array_eq(expected, output, (fixture->words + 1) * 4);
+    }
+}

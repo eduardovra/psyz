@@ -218,3 +218,9 @@ int DecDCTvlcSize(int size) {
     sdk_chunk_halfwords = size > 1 ? (unsigned)size * 2 : 0xffffff;
     return previous;
 }
+
+// The PSX decoder walks the table DecDCTvlcBuild expands; this one needs none.
+void DecDCTvlcBuild(u_short* table) {}
+int DecDCTvlc2(u_long* bs, u_long* buf, DECDCTTAB table) {
+    return DecDCTvlc(bs, buf);
+}
