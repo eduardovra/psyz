@@ -648,6 +648,71 @@ ZTEST(libcd, readn_in_rt_mode_leaves_the_data_path_idle) {
     CdControlB(CdlSetmode, &mode, NULL);
 }
 
+// An STR frame of `count` Mode 2 Form 1 sectors: each one's data starts with
+// the StHEADER libcd's stream reader checks, then 2016 bytes of frame data.
+static void load_cue_str_frame(int count) {
+    char bin[PATH_LEN];
+    unsigned char sector[SECTOR_SIZE];
+    StHEADER* header = (StHEADER*)&sector[24];
+    FILE* f;
+    int i;
+    snprintf(bin, sizeof(bin), "%s/str.bin", dir);
+    f = fopen(bin, "wb");
+    zassert_ptr_ne(NULL, f);
+    for (i = 0; i < count; ++i) {
+        build_data_sector(sector, i);
+        sector[0x12] = sector[0x16] = 0x08; // submode: data
+        memset(header, 0, sizeof(*header));
+        header->id = 0x160;
+        header->type = 0x8001;
+        header->secCount = (u_short)i;
+        header->nSectors = (u_short)count;
+        header->frameCount = 1;
+        header->width = 16;
+        header->height = 16;
+        zassert_u32_eq(SECTOR_SIZE, fwrite(sector, 1, SECTOR_SIZE, f));
+    }
+    fclose(f);
+    add_bin(bin);
+    snprintf(cue, sizeof(cue), "%s/str.cue", dir);
+    write_text(cue, "FILE \"str.bin\" BINARY\n"
+                    "  TRACK 01 MODE2/2352\n"
+                    "    INDEX 01 00:00:00\n");
+    mount_cue();
+}
+
+ZTEST(libcd, stream_read_fills_the_ring_with_a_frame) {
+    static u_long ring[4 * (8 + 0x1F8)];
+    u_long* data = NULL;
+    u_long* header = NULL;
+    unsigned char expected[2016];
+    CdlLOC loc;
+    time_t deadline;
+    int i;
+    load_cue_str_frame(2);
+
+    StSetRing(ring, 4);
+    StSetStream(0, 1, 0xFFFFFFFF, NULL, NULL);
+    CdIntToPos(0, &loc);
+    CdControlB(CdlSetloc, (u_char*)&loc, NULL);
+    zassert_s32_eq(1, CdRead2(CdlModeStream | CdlModeRT | CdlModeSize1));
+    deadline = time(NULL) + 2;
+    while (StGetNext(&data, &header) && time(NULL) < deadline) {
+    }
+
+    zassert_ptr_ne(NULL, data);
+    zassert_u32_eq(1, ((StHEADER*)header)->frameCount);
+    zassert_u32_eq(2, ((StHEADER*)header)->nSectors);
+    for (i = 0; i < 2016; ++i) {
+        expected[i] = (unsigned char)(1 * 31 + 24 + 32 + i);
+    }
+    zassert_u8array_eq(expected, (u_char*)data + 2016, sizeof(expected));
+    zassert_s32_eq(0, StFreeRing(data));
+
+    StUnSetRing();
+    CdControlB(CdlStop, NULL, NULL);
+}
+
 static void mount_bin_cue_pair(
     const unsigned short* data, size_t count, const char* track_type) {
     char cdda_path[PATH_LEN];

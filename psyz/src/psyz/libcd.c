@@ -9,6 +9,7 @@
 #include <ctype.h>
 #include <limits.h>
 #include <kernel.h>
+#include "os.h"
 #include "../internal.h"
 #include "../../decomp/src/libspu/libspu_private.h"
 
@@ -346,6 +347,42 @@ static int pending_complete = 0;
 static int data_sector_valid = 0;
 static int data_sector_number = 0;
 static int data_getsector_count = 0;
+// Data sectors read through their own handle: an STR stream reads them while
+// the audio thread walks the same track for its XA sectors.
+static FILE* data_file = NULL;
+static const void* data_file_track = NULL;
+
+static void close_data_file(void) {
+    if (data_file) {
+        fclose(data_file);
+    }
+    data_file = NULL;
+    data_file_track = NULL;
+}
+
+// A real-time (STR) read paces the frames by the clock: a 2x drive reads 300
+// sectors a second, XA audio included. A stall of the game drops the time it
+// missed rather than bursting a backlog into the ring.
+#define CD_STREAM_SECTORS_PER_SECOND 300
+#define CD_STREAM_MAX_BURST 8
+static uint32_t stream_clock_us;
+
+static void stream_clock_start(void) { stream_clock_us = Psyz_OsNowUs(); }
+
+static int stream_sectors_due(void) {
+    const uint32_t us_per_sector = 1000000 / CD_STREAM_SECTORS_PER_SECOND;
+    uint32_t now = Psyz_OsNowUs();
+    uint32_t due = (now - stream_clock_us) / us_per_sector;
+    if (due > CD_STREAM_MAX_BURST) {
+        stream_clock_us = now - CD_STREAM_MAX_BURST * us_per_sector;
+        due = CD_STREAM_MAX_BURST;
+    }
+    return (int)due;
+}
+
+static void stream_clock_advance(int sectors) {
+    stream_clock_us += sectors * (1000000 / CD_STREAM_SECTORS_PER_SECOND);
+}
 
 // Compute the absolute sector of the disc lead-out, used by CdlGetTD with
 // param = 0x00. Equals the absolute sector where the last track's file ends.
@@ -374,6 +411,7 @@ static void close_track_file(void);
 
 int Psyz_CdSetDiskPath(const char* diskPath) {
     close_track_file();
+    close_data_file();
     is_disk_loaded = 0;
     g_track_count = 0;
     memset(g_tracks, 0, sizeof(g_tracks));
@@ -784,26 +822,22 @@ static int read_raw_sector(int sector, u_char* out) {
     if (!track) {
         return -1;
     }
-    Psyz_AudioLock();
-    if (track != track_file_track || !track_file) {
-        close_track_file();
-        track_file = fopen(track->file_path, "rb");
-        if (!track_file) {
+    if (track != data_file_track || !data_file) {
+        close_data_file();
+        data_file = fopen(track->file_path, "rb");
+        data_file_track = data_file ? track : NULL;
+        if (!data_file) {
             ERRORF("failed to open data file: %s", track->file_path);
-            Psyz_AudioUnlock();
             return -1;
         }
-        track_file_track = track;
     }
     long offset =
         (long)(sector - track->abs_sector + track->start_sector) * SECTOR_SIZE;
-    int result = -1;
-    if (fseek(track_file, offset, SEEK_SET) == 0 &&
-        fread(out, 1, SECTOR_SIZE, track_file) == SECTOR_SIZE) {
-        result = 0;
+    if (fseek(data_file, offset, SEEK_SET) != 0 ||
+        fread(out, 1, SECTOR_SIZE, data_file) != SECTOR_SIZE) {
+        return -1;
     }
-    Psyz_AudioUnlock();
-    return result;
+    return 0;
 }
 
 static int need_cdda_rewind = 1;
@@ -1052,6 +1086,14 @@ static int CD_command(u_char com, u_char* param, u_char* result, s32 arg3) {
     case CdlReadS:
         if (CD_mode & CdlModeRT) {
             psyz_xa_read();
+            // Real-time reads route only XA audio to the SPU; with a ready
+            // callback (CdRead2's stream reader) the data sectors between,
+            // an STR movie's video, still raise data-ready interrupts.
+            data_sector_number = CdPosToInt(&CD_pos);
+            data_sector_valid = 0;
+            data_getsector_count = 0;
+            data_read_active = CD_cbready != NULL;
+            stream_clock_start();
             CD_status |= CdlStatRead;
         } else {
             Psyz_AudioLock();
@@ -1216,6 +1258,10 @@ static int CD_command(u_char com, u_char* param, u_char* result, s32 arg3) {
 // Sectors handed to the ready callback per frame; a 2x drive manages about
 // 2.5, more only shortens loads.
 #define CD_SECTORS_PER_VSYNC 16
+static int is_xa_audio_sector(const u_char* sector) {
+    const u_char submode = sector[0x12];
+    return (submode & 0x44) == 0x44;
+}
 
 void Psyz_CdInterrupts(void) {
     static int delivering;
@@ -1233,15 +1279,24 @@ void Psyz_CdInterrupts(void) {
             CD_cbsync(CdlComplete, last_result);
         }
     }
-    for (i = 0; i < CD_SECTORS_PER_VSYNC && data_read_active && CD_cbready;
-         i++) {
+    int streaming = (CD_mode & CdlModeRT) != 0;
+    int budget = streaming ? stream_sectors_due() : CD_SECTORS_PER_VSYNC;
+    for (i = 0; i < budget && data_read_active && CD_cbready; i++) {
         if (CD_ready(0, result) != CdlDataReady) {
             break;
+        }
+        if ((CD_mode & CdlModeRT) && is_xa_audio_sector(data_sector)) {
+            data_sector_valid = 0; // the audio thread plays it
+            data_sector_number++;
+            continue;
         }
         CD_cbready(CdlDataReady, result);
         if (data_sector_valid) {
             break; // the callback left the sector unread
         }
+    }
+    if (streaming) {
+        stream_clock_advance(i);
     }
     delivering = 0;
 }
@@ -1319,4 +1374,117 @@ int CdReadSync(int mode, u_char* result) {
     return 0;
 }
 
-void StCdInterrupt(void) { NOT_IMPLEMENTED; }
+// libcd's stream state (decomp/src/libcd: cdrom.c, c_002.c, c_004.c).
+extern StHEADER* StRingAddr;
+extern u_long* StRingBase;
+extern volatile s32 StRingSize;
+extern s32 StRingIdx1, StRingIdx2, StFinalSector, Stframe_no;
+extern s32 StSTART_FLAG, StStartFrame, StEndFrame, StMode, StCHANNEL, CChannel;
+extern s16 Stsector_offset;
+extern void (*StFunc2)(void);
+int init_ring_status(s32 start, u32 count);
+void data_ready_callback(void);
+
+// Words of an STR sector's 2048 data bytes: its StHEADER, then the frame data.
+#define ST_HEADER_WORDS 8
+#define ST_DATA_WORDS 0x1F8
+
+static void st_restart_frame(void) {
+    Stframe_no = 0;
+    Stsector_offset = 0;
+    init_ring_status(StRingIdx2, StRingIdx1 - StRingIdx2);
+    StRingIdx1 = StRingIdx2;
+}
+
+// libcd's StCdInterrupt (c_011) reads the sector through the CD and DMA
+// registers; this follows its steps over the sector CdGetSector returns, and
+// raises the data callback itself on a frame's last sector, as its memory
+// emulation path does.
+void StCdInterrupt(void) {
+    u_char result[8];
+    u_long head[3];
+    u32 user[ST_HEADER_WORDS + ST_DATA_WORDS];
+    StHEADER* header;
+    u16* fields;
+
+    if (StFinalSector == 1) {
+        return;
+    }
+    if (CdReady(1, result) == CdlDiskError || (result[0] & CdlStatSeekError)) {
+        return;
+    }
+    // The drive moves on whether or not the ring takes the sector.
+    CdGetSector(head, 3);
+    CdGetSector(user, ST_HEADER_WORDS + ST_DATA_WORDS);
+    header = &StRingAddr[StRingIdx1];
+    fields = (u16*)header;
+    if (fields[0] != 0) {
+        return; // ring full
+    }
+    memcpy(header, user, ST_HEADER_WORDS * 4);
+    if (StMode == 0) {
+        memcpy(&header->loc, head, sizeof(CdlLOC));
+    }
+    if (StSTART_FLAG == 1 && StStartFrame != 0) {
+        if (StStartFrame != fields[4]) {
+            fields[0] = 0;
+            return;
+        }
+        StSTART_FLAG = 0;
+    }
+    if (fields[0] != 0x160 || ((fields[1] >> 10) & 0x1F) != CChannel) {
+        fields[0] = 0;
+        return;
+    }
+    if (Stsector_offset != fields[2] ||
+        (Stframe_no != 0 && Stframe_no != fields[4])) {
+        st_restart_frame();
+        fields[0] = 0;
+        return;
+    }
+    if (fields[2] == 0) {
+        Stsector_offset = 0;
+        Stframe_no = fields[4];
+        if (StEndFrame != 0 && (u32)Stframe_no >= (u32)StEndFrame) {
+            st_restart_frame();
+            fields[0] = 0;
+            StSTART_FLAG = 1;
+            if (StFunc2) {
+                StFunc2();
+            }
+            return;
+        }
+        if ((u32)(StRingSize - StRingIdx1 - 1) < fields[3]) {
+            if (StEndFrame == 0) {
+                fields[0] = 1;
+                StSTART_FLAG = 1;
+                if (StFunc2) {
+                    StFunc2();
+                }
+                return;
+            }
+            if ((s16)StRingAddr->id != 0) {
+                fields[0] = 0;
+                return;
+            }
+            fields[0] = 1;
+            memcpy(StRingAddr, header, sizeof(StHEADER));
+            StRingIdx1 = 0;
+            header = StRingAddr;
+            fields = (u16*)header;
+        }
+        StRingIdx2 = StRingIdx1;
+    }
+    Stsector_offset++;
+    StRingBase = (u_long*)(&StRingAddr[StRingSize] + StRingIdx1 * 0x3F);
+    memcpy(StRingBase, user + ST_HEADER_WORDS, ST_DATA_WORDS * 4);
+    fields[0] = 3;
+    StRingIdx1++;
+    if (fields[3] - 1 == fields[2]) {
+        StFinalSector = 1;
+        Stsector_offset = 0;
+        Stframe_no = 0;
+        CChannel = StCHANNEL;
+        data_ready_callback();
+    }
+}

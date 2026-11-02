@@ -611,5 +611,6 @@ void StSetRing(u_long* ring_addr, u_long ring_size1);
  * Removes the streaming ring buffer.
  */
 void StUnSetRing(void);
+void StCdInterrupt(void);
 
 #endif
