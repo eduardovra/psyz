@@ -3025,3 +3025,19 @@ ZTEST(gte, dpq_color_moves_color_toward_far_color) {
     zexpect_u8_eq(85, out.b);
     zexpect_u8_eq(0x2C, out.cd);
 }
+
+ZTEST(gte, leading_zero_count) {
+    static const struct {
+        unsigned int lzcs, lzcr;
+    } cases[] = {
+        {0x00000000, 32}, {0xFFFFFFFF, 32}, {0x00000001, 31}, {0x40000000, 1},
+        {0x80000000, 1},  {0x7FFFFFFF, 1},  {0x00800000, 8},  {0xFF7FFFFF, 8},
+    };
+    for (unsigned i = 0; i < sizeof(cases) / sizeof(*cases); ++i) {
+        unsigned int lzcr;
+        gte_ldlzc(cases[i].lzcs);
+        gte_stlzc(&lzcr);
+        zassert_u32_eq(cases[i].lzcr, lzcr);
+        zassert_u32_eq(cases[i].lzcs, Psyz_GteDataRead(30));
+    }
+}

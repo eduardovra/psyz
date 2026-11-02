@@ -2992,6 +2992,8 @@ void RotMeshH(short* Yheight, DVECTOR* Vo, u_short* sz, u_short* flag,
 #define gte_nclip() Psyz_GteNclip()
 #define gte_stopz(x) Psyz_GteStopz((int*)(x))
 #define gte_ldv0(x) Psyz_GteLdv0(x)
+#define gte_ldlzc(x) Psyz_GteDataWrite(30, (x))
+#define gte_stlzc(x) (*(unsigned int*)(x) = Psyz_GteDataRead(31))
 #define gte_ldv01c(x) Psyz_GteLdv01c(x)
 #define gte_ldv3c(x) Psyz_GteLdv3c(x)
 #define gte_stsxy01c(x) Psyz_GteStsxy01c((unsigned int*)(x))

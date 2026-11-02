@@ -3445,6 +3445,23 @@ static void unpack_xy(unsigned int v, short* x, short* y) {
     *y = (short)((v >> 16) & 0xFFFF);
 }
 
+// LZCS is written as is; reading LZCR counts its leading bits equal to the
+// sign bit (1 to 32).
+static unsigned int gte_lzcs;
+
+static unsigned int leading_sign_bits(unsigned int value) {
+    unsigned int count = 0;
+
+    if (value & 0x80000000) {
+        value = ~value;
+    }
+    while (count < 32 && !(value & 0x80000000)) {
+        value <<= 1;
+        count++;
+    }
+    return count;
+}
+
 unsigned int Psyz_GteDataRead(unsigned idx) {
     switch (idx) {
     case 0:
@@ -3503,6 +3520,10 @@ unsigned int Psyz_GteDataRead(unsigned idx) {
         return (unsigned int)MAC2;
     case 27:
         return (unsigned int)MAC3;
+    case 30:
+        return gte_lzcs;
+    case 31:
+        return leading_sign_bits(gte_lzcs);
     default:
         return 0;
     }
@@ -3596,6 +3617,9 @@ void Psyz_GteDataWrite(unsigned idx, unsigned int v) {
         break;
     case 27:
         MAC3 = (int)v;
+        break;
+    case 30:
+        gte_lzcs = v;
         break;
     default:
         break;
