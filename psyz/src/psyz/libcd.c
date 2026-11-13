@@ -649,6 +649,10 @@ static int xa_read_and_decode_sector(void) {
     memset(xa.decoded, 0, sizeof(xa.decoded));
     xa.decoded_count = XA_DECODED_MAX_FRAMES / 2;
     xa.decoded_pos = 0;
+    // The head keeps moving through the silence (75 sectors/s per speed
+    // step); games poll CdlGetlocL until it passes their end sector.
+    const int speed = (CD_mode & CdlModeSpeed) ? 2 : 1;
+    xa.cur_abs_sector += xa.decoded_count * 75 * speed / 37800;
     return 1;
 }
 
