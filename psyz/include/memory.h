@@ -100,6 +100,9 @@ void* memmove(u_char* dest, u_char* src, int n);
  * @return Pointer to block (s)
  */
 void* memset(u_char* s, u_char c, int n);
+#elif __has_include(<strings.h>)
+// bionic declares bzero, bcmp and bcopy only here
+#include <strings.h>
 #endif
 
 #endif
